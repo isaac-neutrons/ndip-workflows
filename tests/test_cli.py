@@ -36,9 +36,8 @@ def test_creates_config_files():
             f.write(SAMPLE_YAML)
 
         config_dir = os.path.join(tmpdir, "configs")
-        nexus_dir = os.path.join(tmpdir, "nexus")
 
-        result = runner.invoke(main, [yaml_file, "--config-dir", config_dir, "--nexus-dir", nexus_dir])
+        result = runner.invoke(main, [yaml_file, "--config-dir", config_dir])
         assert result.exit_code == 0
 
         # Check config files exist
@@ -50,10 +49,11 @@ def test_creates_config_files():
             config = json.load(f)
         assert config["run"] == 218386
         assert config["event_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
+        assert config["input_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
 
 
 def test_matching_identifiers():
-    """Test that both collections use matching identifiers."""
+    """Test that config files use correct identifiers."""
     runner = CliRunner()
     with tempfile.TemporaryDirectory() as tmpdir:
         yaml_file = os.path.join(tmpdir, "batch.yaml")
@@ -61,17 +61,16 @@ def test_matching_identifiers():
             f.write(SAMPLE_YAML)
 
         config_dir = os.path.join(tmpdir, "configs")
-        nexus_dir = os.path.join(tmpdir, "nexus")
 
-        result = runner.invoke(main, [yaml_file, "--config-dir", config_dir, "--nexus-dir", nexus_dir])
+        result = runner.invoke(main, [yaml_file, "--config-dir", config_dir])
         assert result.exit_code == 0
 
         config_ids = {os.path.splitext(f)[0] for f in os.listdir(config_dir)}
         assert config_ids == {"218386", "218387"}
 
 
-def test_missing_event_file_warns():
-    """Test that a missing event_file produces a warning but doesn't fail."""
+def test_event_file_included_as_input_file():
+    """Test that the event_file path is also available as input_file in the JSON."""
     runner = CliRunner()
     with tempfile.TemporaryDirectory() as tmpdir:
         yaml_file = os.path.join(tmpdir, "batch.yaml")
@@ -79,11 +78,13 @@ def test_missing_event_file_warns():
             f.write(SAMPLE_YAML)
 
         config_dir = os.path.join(tmpdir, "configs")
-        nexus_dir = os.path.join(tmpdir, "nexus")
 
-        result = runner.invoke(main, [yaml_file, "--config-dir", config_dir, "--nexus-dir", nexus_dir])
+        result = runner.invoke(main, [yaml_file, "--config-dir", config_dir])
         assert result.exit_code == 0
-        assert "Warning: Event file not found" in result.output or result.exit_code == 0
+
+        with open(os.path.join(config_dir, "218387.json")) as f:
+            config = json.load(f)
+        assert config["input_file"] == config["event_file"]
 
 
 def test_invalid_yaml():
@@ -119,9 +120,8 @@ def test_fallback_identifier():
             f.write("- data_directory: /some/path\n- data_directory: /other/path\n")
 
         config_dir = os.path.join(tmpdir, "configs")
-        nexus_dir = os.path.join(tmpdir, "nexus")
 
-        result = runner.invoke(main, [yaml_file, "--config-dir", config_dir, "--nexus-dir", nexus_dir])
+        result = runner.invoke(main, [yaml_file, "--config-dir", config_dir])
         assert result.exit_code == 0
         assert os.path.exists(os.path.join(config_dir, "run_000.json"))
         assert os.path.exists(os.path.join(config_dir, "run_001.json"))
