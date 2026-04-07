@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yaml-parser"
+version = "1.0.0"
+description = "Parse a batch YAML file into NeXus file links and JSON configs for Galaxy workflows"
+authors = [{name = "Oak Ridge National Laboratory"}]
+license = {text = "BSD-3-Clause"}
+dependencies = [
+    "pyyaml>=6.0",
+    "click",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+yaml-parser = "yaml_parser.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
