@@ -5,6 +5,7 @@
   prompt: "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate, in dTHF (ambient medium). The incoming comes from the back (back reflection)."
   export_path: "/SNS/REF_L/IPTS-34347/shared/isaac/218386/export_218386.gz"
   output_directory: "/SNS/REF_L/IPTS-34347/shared/isaac/218386"
+  result_file: "REFL_218386_combined_data_auto.txt"
 - run: 218387
   event_file: "/SNS/REF_L/IPTS-34347/nexus/REF_L_218387.nxs.h5"
   data_directory: "/SNS/REF_L/IPTS-34347/nexus"
@@ -12,3 +13,4 @@
   prompt: "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate, in dTHF (ambient medium). The incoming comes from the back (back reflection)."
   export_path: "/SNS/REF_L/IPTS-34347/shared/isaac/218387/export_218387.gz"
   output_directory: "/SNS/REF_L/IPTS-34347/shared/isaac/218387"
+  result_file: "REFL_218386_combined_data_auto.txt"
