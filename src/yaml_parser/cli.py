@@ -46,21 +46,40 @@ def main(input_file: str, config_dir: str) -> None:
             click.echo(f"Error parsing YAML: {e}", err=True)
             sys.exit(1)
 
-    if not isinstance(data, list):
+    # Support two formats:
+    #   1. Plain list of run configs (legacy)
+    #   2. Dict with optional 'common' defaults and a 'runs' list
+    common: dict = {}
+    if isinstance(data, dict):
+        if 'runs' not in data:
+            click.echo(
+                "Error: Expected a 'runs' key when the top level of the YAML is a mapping.",
+                err=True,
+            )
+            sys.exit(1)
+        common = data.get('common', {})
+        runs = data['runs']
+    elif isinstance(data, list):
+        runs = data
+    else:
         click.echo(
-            "Error: Expected the top level of the YAML to be a list of job configurations.",
+            "Error: Expected the top level of the YAML to be a list or a mapping with 'runs'.",
             err=True,
         )
         sys.exit(1)
 
+    if not isinstance(runs, list):
+        click.echo("Error: 'runs' must be a list of job configurations.", err=True)
+        sys.exit(1)
+
     config_count = 0
 
-    for i, item in enumerate(data):
+    for i, item in enumerate(runs):
         identifier = str(item.get('run', item.get('tag', f"run_{i:03d}")))
 
-        # Write JSON config — ensure event_file is included as input_file
-        config_data = dict(item)
-        event_file = item.get('event_file')
+        # Merge common defaults; run-level keys take precedence
+        config_data = {**common, **item}
+        event_file = config_data.get('event_file')
         if event_file and 'input_file' not in config_data:
             config_data['input_file'] = event_file
 

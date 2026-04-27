@@ -99,6 +99,77 @@ def test_invalid_yaml():
         assert result.exit_code != 0
 
 
+COMMON_PARAMS_YAML = """\
+common:
+  data_directory: "/SNS/REF_L/IPTS-34347/nexus"
+  template_file: "/SNS/REF_L/IPTS-34347/shared/autoreduce/template_down.xml"
+  prompt: "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate"
+
+runs:
+- run: 218386
+  event_file: "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
+  export_path: "/SNS/REF_L/IPTS-34347/shared/isaac/218386/export_218386.gz"
+  output_directory: "/SNS/REF_L/IPTS-34347/shared/isaac/218386"
+- run: 218387
+  event_file: "/SNS/REF_L/IPTS-34347/nexus/REF_L_218387.nxs.h5"
+  export_path: "/SNS/REF_L/IPTS-34347/shared/isaac/218387/export_218387.gz"
+  output_directory: "/SNS/REF_L/IPTS-34347/shared/isaac/218387"
+  template_file: "/SNS/REF_L/IPTS-34347/shared/autoreduce/override_template.xml"
+"""
+
+
+def test_common_params_merged_into_runs():
+    """Common params are inherited by every run and present in the JSON output."""
+    runner = CliRunner()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yaml_file = os.path.join(tmpdir, "common.yaml")
+        with open(yaml_file, "w") as f:
+            f.write(COMMON_PARAMS_YAML)
+
+        config_dir = os.path.join(tmpdir, "configs")
+        result = runner.invoke(main, [yaml_file, "--config-dir", config_dir])
+        assert result.exit_code == 0
+
+        with open(os.path.join(config_dir, "218386.json")) as f:
+            config = json.load(f)
+
+        assert config["data_directory"] == "/SNS/REF_L/IPTS-34347/nexus"
+        assert config["template_file"] == "/SNS/REF_L/IPTS-34347/shared/autoreduce/template_down.xml"
+        assert config["prompt"] == "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate"
+        assert config["event_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
+        assert config["input_file"] == config["event_file"]
+
+
+def test_run_level_key_overrides_common():
+    """A run-level key takes precedence over the same key in common."""
+    runner = CliRunner()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yaml_file = os.path.join(tmpdir, "common.yaml")
+        with open(yaml_file, "w") as f:
+            f.write(COMMON_PARAMS_YAML)
+
+        config_dir = os.path.join(tmpdir, "configs")
+        runner.invoke(main, [yaml_file, "--config-dir", config_dir])
+
+        with open(os.path.join(config_dir, "218387.json")) as f:
+            config = json.load(f)
+
+        # run 218387 overrides template_file
+        assert config["template_file"] == "/SNS/REF_L/IPTS-34347/shared/autoreduce/override_template.xml"
+
+
+def test_common_format_missing_runs_key():
+    """A mapping without a 'runs' key should produce an error."""
+    runner = CliRunner()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yaml_file = os.path.join(tmpdir, "bad.yaml")
+        with open(yaml_file, "w") as f:
+            f.write("common:\n  foo: bar\n")
+
+        result = runner.invoke(main, [yaml_file])
+        assert result.exit_code != 0
+
+
 def test_non_list_yaml():
     """Test that a YAML file with a non-list top level fails."""
     runner = CliRunner()
