@@ -1,0 +1,127 @@
+{
+    "a_galaxy_workflow": "true",
+    "annotation": "Batch workflow for ISAAC",
+    "comments": [],
+    "format-version": "0.1",
+    "name": "LR Reduce Batch",
+    "report": {
+        "markdown": "\n# Workflow Execution Report\n\n## Workflow Inputs\n```galaxy\ninvocation_inputs()\n```\n\n## Workflow Outputs\n```galaxy\ninvocation_outputs()\n```\n\n## Workflow\n```galaxy\nworkflow_display()\n```\n"
+    },
+    "steps": {
+        "0": {
+            "annotation": "",
+            "content_id": null,
+            "errors": null,
+            "id": 0,
+            "input_connections": {},
+            "inputs": [
+                {
+                    "description": "",
+                    "name": "Input YAML"
+                }
+            ],
+            "label": "Input YAML",
+            "name": "Input dataset",
+            "outputs": [],
+            "position": {
+                "left": 0,
+                "top": 0
+            },
+            "tool_id": null,
+            "tool_state": "{\"optional\": false, \"tag\": null}",
+            "tool_version": null,
+            "type": "data_input",
+            "uuid": "43ebf02d-53cc-484c-be65-fd6eb91f1f72",
+            "when": null,
+            "workflow_outputs": []
+        },
+        "1": {
+            "annotation": "",
+            "content_id": "isaac_yaml_parser_v2",
+            "errors": null,
+            "id": 1,
+            "input_connections": {
+                "input_yaml": {
+                    "id": 0,
+                    "output_name": "output"
+                }
+            },
+            "inputs": [],
+            "label": null,
+            "name": "YAML to Collection Splitter",
+            "outputs": [
+                {
+                    "name": "config_collection",
+                    "type": "input"
+                }
+            ],
+            "position": {
+                "left": 325.90234375,
+                "top": 8.18359375
+            },
+            "post_job_actions": {},
+            "tool_id": "isaac_yaml_parser_v2",
+            "tool_state": "{\"input_yaml\": {\"__class__\": \"ConnectedValue\"}, \"__page__\": 0, \"__rerun_remap_job_id__\": null}",
+            "tool_uuid": null,
+            "tool_version": "2.0.1",
+            "type": "tool",
+            "uuid": "d4281785-7ac9-4810-acf7-713f6c4bbfaf",
+            "when": null,
+            "workflow_outputs": []
+        },
+        "2": {
+            "annotation": "",
+            "content_id": "neutrons_isaac_reduction",
+            "errors": null,
+            "id": 2,
+            "input_connections": {
+                "config_json": {
+                    "id": 1,
+                    "output_name": "config_collection"
+                }
+            },
+            "inputs": [
+                {
+                    "description": "runtime parameter for tool Reduction",
+                    "name": "input_file"
+                },
+                {
+                    "description": "runtime parameter for tool Reduction",
+                    "name": "template_file"
+                }
+            ],
+            "label": null,
+            "name": "Reduction",
+            "outputs": [
+                {
+                    "name": "output",
+                    "type": "txt"
+                },
+                {
+                    "name": "reflectivity",
+                    "type": "txt"
+                },
+                {
+                    "name": "identifier",
+                    "type": "txt"
+                }
+            ],
+            "position": {
+                "left": 712.57421875,
+                "top": 224.91015625
+            },
+            "post_job_actions": {},
+            "tool_id": "neutrons_isaac_reduction",
+            "tool_state": "{\"config_json\": {\"__class__\": \"ConnectedValue\"}, \"data_dir\": \"/SNS/REF_L/IPTS-34347/nexus\", \"input_file\": {\"__class__\": \"RuntimeValue\"}, \"output_dir\": \"/SNS/REF_L/IPTS-34347/shared/isaac\", \"template_file\": {\"__class__\": \"RuntimeValue\"}, \"__page__\": 0, \"__rerun_remap_job_id__\": null}",
+            "tool_uuid": null,
+            "tool_version": "0.1.0",
+            "type": "tool",
+            "uuid": "88851710-a436-4d18-a90b-76a3b9ce9cc7",
+            "when": null,
+            "workflow_outputs": []
+        }
+    },
+    "tags": [],
+    "uuid": "5d30592e-d6a0-45f3-bfe1-5cbe3c949f88",
+    "version": 3
+}

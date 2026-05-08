@@ -12,6 +12,7 @@ from yaml_parser.cli import main
 SAMPLE_YAML = """\
 - run: 218386
   event_file: "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
+    context_file: "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218386.txt"
   data_directory: "/SNS/REF_L/IPTS-34347/nexus"
   template_file: "/SNS/REF_L/IPTS-34347/shared/autoreduce/template_down.xml"
   prompt: "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate"
@@ -19,6 +20,7 @@ SAMPLE_YAML = """\
   output_directory: "/SNS/REF_L/IPTS-34347/shared/isaac/218386"
 - run: 218387
   event_file: "/SNS/REF_L/IPTS-34347/nexus/REF_L_218387.nxs.h5"
+    context_file: "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218387.txt"
   data_directory: "/SNS/REF_L/IPTS-34347/nexus"
   template_file: "/SNS/REF_L/IPTS-34347/shared/autoreduce/template_down.xml"
   prompt: "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate"
@@ -85,6 +87,25 @@ def test_event_file_included_as_input_file():
         with open(os.path.join(config_dir, "218387.json")) as f:
             config = json.load(f)
         assert config["input_file"] == config["event_file"]
+
+
+def test_context_file_preserved_in_output():
+    """Test that context_file is preserved in the generated JSON."""
+    runner = CliRunner()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yaml_file = os.path.join(tmpdir, "batch.yaml")
+        with open(yaml_file, "w") as f:
+            f.write(SAMPLE_YAML)
+
+        config_dir = os.path.join(tmpdir, "configs")
+
+        result = runner.invoke(main, [yaml_file, "--config-dir", config_dir])
+        assert result.exit_code == 0
+
+        with open(os.path.join(config_dir, "218386.json")) as f:
+            config = json.load(f)
+
+        assert config["context_file"] == "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218386.txt"
 
 
 def test_invalid_yaml():
