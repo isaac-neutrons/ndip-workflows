@@ -13,6 +13,8 @@ import sys
 import click
 import yaml
 
+from ndip_state.state import migrate_v0_to_v1
+
 
 @click.command()
 @click.argument(
@@ -83,9 +85,11 @@ def main(input_file: str, config_dir: str) -> None:
         if event_file and 'input_file' not in config_data:
             config_data['input_file'] = event_file
 
+        state = migrate_v0_to_v1(config_data)
+
         config_file = os.path.join(config_dir, f"{identifier}.json")
         with open(config_file, 'w') as out_f:
-            json.dump(config_data, out_f, indent=2)
+            json.dump(state, out_f, indent=2)
         config_count += 1
 
     click.echo(f"Processing complete! Created {config_count} configs.")

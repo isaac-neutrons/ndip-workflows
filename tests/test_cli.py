@@ -12,7 +12,7 @@ from yaml_parser.cli import main
 SAMPLE_YAML = """\
 - run: 218386
   event_file: "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
-    context_file: "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218386.txt"
+  context_file: "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218386.txt"
   data_directory: "/SNS/REF_L/IPTS-34347/nexus"
   template_file: "/SNS/REF_L/IPTS-34347/shared/autoreduce/template_down.xml"
   prompt: "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate"
@@ -20,7 +20,7 @@ SAMPLE_YAML = """\
   output_directory: "/SNS/REF_L/IPTS-34347/shared/isaac/218386"
 - run: 218387
   event_file: "/SNS/REF_L/IPTS-34347/nexus/REF_L_218387.nxs.h5"
-    context_file: "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218387.txt"
+  context_file: "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218387.txt"
   data_directory: "/SNS/REF_L/IPTS-34347/nexus"
   template_file: "/SNS/REF_L/IPTS-34347/shared/autoreduce/template_down.xml"
   prompt: "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate"
@@ -46,12 +46,13 @@ def test_creates_config_files():
         assert os.path.exists(os.path.join(config_dir, "218386.json"))
         assert os.path.exists(os.path.join(config_dir, "218387.json"))
 
-        # Check config content
+        # Check config content (v1 schema: paths nested under "paths")
         with open(os.path.join(config_dir, "218386.json")) as f:
             config = json.load(f)
+        assert config["schema_version"] == "1"
         assert config["run"] == 218386
-        assert config["event_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
-        assert config["input_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
+        assert config["paths"]["event_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
+        assert config["paths"]["input_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
 
 
 def test_matching_identifiers():
@@ -86,7 +87,7 @@ def test_event_file_included_as_input_file():
 
         with open(os.path.join(config_dir, "218387.json")) as f:
             config = json.load(f)
-        assert config["input_file"] == config["event_file"]
+        assert config["paths"]["input_file"] == config["paths"]["event_file"]
 
 
 def test_context_file_preserved_in_output():
@@ -105,7 +106,7 @@ def test_context_file_preserved_in_output():
         with open(os.path.join(config_dir, "218386.json")) as f:
             config = json.load(f)
 
-        assert config["context_file"] == "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218386.txt"
+        assert config["paths"]["context_file"] == "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218386.txt"
 
 
 def test_invalid_yaml():
@@ -154,11 +155,11 @@ def test_common_params_merged_into_runs():
         with open(os.path.join(config_dir, "218386.json")) as f:
             config = json.load(f)
 
-        assert config["data_directory"] == "/SNS/REF_L/IPTS-34347/nexus"
-        assert config["template_file"] == "/SNS/REF_L/IPTS-34347/shared/autoreduce/template_down.xml"
+        assert config["paths"]["data_directory"] == "/SNS/REF_L/IPTS-34347/nexus"
+        assert config["paths"]["template_file"] == "/SNS/REF_L/IPTS-34347/shared/autoreduce/template_down.xml"
         assert config["prompt"] == "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate"
-        assert config["event_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
-        assert config["input_file"] == config["event_file"]
+        assert config["paths"]["event_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
+        assert config["paths"]["input_file"] == config["paths"]["event_file"]
 
 
 def test_run_level_key_overrides_common():
@@ -176,7 +177,7 @@ def test_run_level_key_overrides_common():
             config = json.load(f)
 
         # run 218387 overrides template_file
-        assert config["template_file"] == "/SNS/REF_L/IPTS-34347/shared/autoreduce/override_template.xml"
+        assert config["paths"]["template_file"] == "/SNS/REF_L/IPTS-34347/shared/autoreduce/override_template.xml"
 
 
 def test_common_format_missing_runs_key():
