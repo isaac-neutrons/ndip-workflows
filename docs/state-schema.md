@@ -17,6 +17,8 @@ module via inlined configfiles.
 {
   "schema_version": "1",
   "run": 226644,
+  "instrument": "REF_L",
+  "ipts": "IPTS-36897",
   "sequence_total": 3,
   "prompt": "Deposited 50 nm copper on 3 nm titanium on silicon, in D2O.",
   "paths": {
@@ -61,6 +63,10 @@ module via inlined configfiles.
 
 - **`schema_version`** is a string. The current value is `"1"`. Bump only on
   breaking changes; additive fields stay within v1.
+- **`run` / `instrument` / `ipts`** are optional top-level identifiers
+  populated by `seed-config` (or `yaml-parser`) from the event file path.
+  They have no effect on workflow execution; downstream tools use them as
+  metadata in records like the ISAAC report.
 - **`paths.*`** holds every filesystem path the workflow refers to. Tools read
   paths from here, not from flat top-level keys.
 - **Stage blocks** (`reduction`, `analysis`, `assembly`) always carry at

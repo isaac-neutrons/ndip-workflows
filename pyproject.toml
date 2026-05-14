@@ -21,6 +21,7 @@ test = [
 
 [project.scripts]
 yaml-parser = "yaml_parser.cli:main"
+seed-config = "yaml_parser.seed:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
