@@ -1,11 +1,11 @@
-<tool id="nexus_data_assembler" name="Data Assembler" version="0.2.0" profile="22.01">
+<tool id="nexus_data_assembler" name="Data Assembler" version="0.3.0" profile="22.01">
     <description>Assembles data from reflectivity, parquet files, and analyzer model into a single AI-ready output.</description>
     <creator>
         <person name="Mat Doucet"/>
         <organization url="https://www.ornl.gov/" name="ORNL"/>
     </creator>
     <requirements>
-        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/data-assembler:sha-a13727c</container>
+        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/data-assembler:sha-d378fd8</container>
     </requirements>
     <inputs>
         <param name="reflectivity" type="data" format="txt"  label="Reflectivity File" optional="true" help="Required unless provided via the v1 state JSON as 'reduction.result_file'."></param>
@@ -15,303 +15,49 @@
     </inputs>
 
     <configfiles>
-        <configfile name="state_module">#raw
+        <configfile name="state_env">#raw
+"""Emit shell exports for tool-XML bash from a v1 (or v0) workflow-state JSON.
+
+Slim helper inlined in each tool so the container doesn't need ndip_state
+installed. Only emits the env vars the bash actually uses; merge logic is
+in the underlying CLIs (simple-reduction / plan-data / analyze-sample /
+data-assembler ingest / nr-isaac-format convert-ingest).
 """
-v1 workflow state for the ISAAC reflectivity pipeline.
-
-A single JSON document flows through every Galaxy tool
-(reduction -> simple_analyzer -> data_assembler). It captures:
-
-  - schema_version: the on-disk schema version ("1").
-  - run, sequence_total, prompt: top-level scalars.
-  - paths: input/derived filesystem paths shared across stages.
-  - llm:   LLM endpoint configuration.
-  - reduction / analysis / assembly: per-stage outcome blocks. Each block
-    has at minimum ``success`` (bool|None) and ``metadata`` (dict). Helpers
-    in this module merge stage-specific keys (e.g. result_file, problem_json).
-  - errors: append-only list of stage error records.
-
-This module is intentionally stdlib-only so the same source can be inlined
-verbatim into Galaxy tool configfiles, which run inside foreign containers
-that do not have this project installed.
-"""
-
-import argparse
-import json
-import os
-import shlex
+import json, os, shlex, sys
 
 
-SCHEMA_VERSION = "1"
-
-_PATH_KEYS = (
-    "data_directory",
-    "output_directory",
-    "template_file",
-    "context_file",
-    "event_file",
-    "input_file",
-    "raw_data",
-    "export_path",
-)
-
-_LLM_KEY_MAP = (
-    # (v1 name, v0 name)
-    ("provider", "llm_provider"),
-    ("model", "llm_model"),
-    ("base_url", "llm_base_url"),
-)
-
-_REDUCTION_KEYS = ("result_file", "partial_file", "combined_file")
+def _path(s, key, default=""):
+    p = s.get("paths") or {}
+    return p.get(key) or s.get(key) or default
 
 
-def empty_state():
-    """Return a fresh v1 state skeleton."""
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "paths": {},
-        "llm": {},
-        "reduction": {"success": None, "metadata": {}},
-        "analysis": {"success": None, "metadata": {}},
-        "assembly": {"success": None, "metadata": {}},
-        "errors": [],
-    }
+state_path, env_path = sys.argv[1], sys.argv[2]
+if state_path and os.path.isfile(state_path):
+    with open(state_path) as f:
+        s = json.load(f) or {}
+else:
+    s = {}
 
+llm = s.get("llm") or {}
+red = s.get("reduction") or {}
+seq = s.get("sequence_total")
+event_file = _path(s, "event_file") or _path(s, "input_file")
 
-def _path(state, key, default=""):
-    """Read a path-style value from a v1 (nested) or v0 (flat) state dict."""
-    p = state.get("paths") or {}
-    return p.get(key) or state.get(key) or default
-
-
-def migrate_v0_to_v1(d):
-    """Translate a flat v0 state dict into the nested v1 form.
-
-    Unknown top-level keys are preserved at the top level so callers can
-    add forward-compatible fields without losing them on round-trip.
-    """
-    state = empty_state()
-    leftover = dict(d)
-    leftover.pop("schema_version", None)
-
-    for k in _PATH_KEYS:
-        if k in leftover:
-            state["paths"][k] = leftover.pop(k)
-
-    for v1_key, v0_key in _LLM_KEY_MAP:
-        if v0_key in leftover:
-            state["llm"][v1_key] = leftover.pop(v0_key)
-
-    for k in _REDUCTION_KEYS:
-        if k in leftover:
-            state["reduction"][k] = leftover.pop(k)
-
-    if "final_model" in leftover:
-        state["analysis"]["problem_json"] = leftover.pop("final_model")
-    if "model_available" in leftover:
-        state["analysis"]["success"] = bool(leftover.pop("model_available"))
-    if "model_name" in leftover:
-        state["analysis"]["model_name"] = leftover.pop("model_name")
-    if "perform_assembly" in leftover:
-        state["analysis"]["perform_assembly"] = bool(leftover.pop("perform_assembly"))
-
-    if "isaac_record" in leftover:
-        state["assembly"]["isaac_record"] = leftover.pop("isaac_record")
-
-    state.update(leftover)
-    return state
-
-
-def _ensure_blocks(d):
-    base = empty_state()
-    for k, v in base.items():
-        if k not in d:
-            d[k] = v
-        elif isinstance(v, dict) and isinstance(d.get(k), dict):
-            for kk, vv in v.items():
-                d[k].setdefault(kk, vv)
-    return d
-
-
-def load_state(path):
-    """Load a state file, transparently migrating v0 to v1.
-
-    An empty / missing path returns an empty v1 state.
-    """
-    if not path or not os.path.isfile(path):
-        return empty_state()
-    with open(path) as f:
-        d = json.load(f)
-    if not isinstance(d, dict):
-        return empty_state()
-    if d.get("schema_version") == SCHEMA_VERSION:
-        return _ensure_blocks(d)
-    return migrate_v0_to_v1(d)
-
-
-def save_state(state, path):
-    with open(path, "w") as f:
-        json.dump(state, f, indent=2)
-
-
-def update_stage(state, stage, **fields):
-    """Set fields under ``state[stage]``; ``metadata`` is shallow-merged."""
-    block = state.setdefault(stage, {"success": None, "metadata": {}})
-    meta = fields.pop("metadata", None)
-    if meta:
-        block.setdefault("metadata", {}).update(meta)
-    block.update(fields)
-    return state
-
-
-def record_error(state, stage, message, exit_code=None):
-    """Append an error record for a stage."""
-    state.setdefault("errors", []).append({
-        "stage": stage,
-        "message": message,
-        "exit_code": exit_code,
-    })
-    return state
-
-
-# Mapping from env-var name to a getter producing the string value.
-# The set is intentionally generous: every tool sources the same _env.sh
-# and ignores variables it doesn't use.
-_ENV_FROM_STATE = (
-    ("EVENT_FILE", lambda s: _path(s, "event_file")),
-    ("INPUT_FILE", lambda s: _path(s, "input_file") or _path(s, "event_file")),
-    ("TEMPLATE", lambda s: _path(s, "template_file")),
-    ("DATA_DIR", lambda s: _path(s, "data_directory")),
-    ("OUTPUT_DIR", lambda s: _path(s, "output_directory")),
-    ("CONTEXT_FILE", lambda s: _path(s, "context_file")),
-    ("RAW_DATA", lambda s: _path(s, "raw_data") or _path(s, "event_file")),
-    ("EXPORT_PATH", lambda s: _path(s, "export_path")),
-    ("PROMPT", lambda s: s.get("prompt", "")),
-    ("SEQUENCE_TOTAL", lambda s: "" if s.get("sequence_total") is None else str(s.get("sequence_total"))),
-    ("LLM_PROVIDER", lambda s: (s.get("llm") or {}).get("provider", "")),
-    ("LLM_MODEL", lambda s: (s.get("llm") or {}).get("model", "")),
-    ("LLM_BASE_URL", lambda s: (s.get("llm") or {}).get("base_url", "")),
-    ("REFLECTIVITY_FILE", lambda s: (s.get("reduction") or {}).get("result_file", "")),
-    ("PARTIAL_FILE", lambda s: (s.get("reduction") or {}).get("partial_file", "")),
-    ("COMBINED_FILE", lambda s: (s.get("reduction") or {}).get("combined_file", "")),
-    ("MODEL_NAME", lambda s: (s.get("analysis") or {}).get("model_name", "") or ""),
-    ("FINAL_MODEL", lambda s: (s.get("analysis") or {}).get("problem_json", "") or ""),
-    ("MODEL_AVAILABLE", lambda s: "1" if (s.get("analysis") or {}).get("success") else "0"),
-    ("ISAAC_RECORD", lambda s: (s.get("assembly") or {}).get("isaac_record", "") or ""),
-)
-
-
-def emit_env(state, env_path):
-    """Write ``export KEY=value`` lines that a tool's bash can ``. _env.sh``."""
-    with open(env_path, "w") as f:
-        for name, getter in _ENV_FROM_STATE:
-            value = getter(state) or ""
-            f.write("export %s=%s\n" % (name, shlex.quote(str(value))))
-
-
-# --------------------------------------------------------------------------
-# CLI subcommands invoked from Galaxy tool XMLs.
-# --------------------------------------------------------------------------
-
-def _load_or_empty(path):
-    return load_state(path) if path else empty_state()
-
-
-def _cmd_parse_config(args):
-    state = _load_or_empty(args.config)
-    emit_env(state, args.env_out)
-
-
-def _cmd_merge_reduction(args):
-    state = _load_or_empty(args.config)
-    with open(args.summary) as f:
-        summary = json.load(f)
-    partial = summary.get("partial_file") or ""
-    combined = summary.get("combined_file") or ""
-    update_stage(
-        state,
-        "reduction",
-        success=True,
-        result_file=partial,
-        partial_file=partial,
-        combined_file=combined,
-    )
-    ev = _path(state, "event_file")
-    if ev:
-        state.setdefault("paths", {})["raw_data"] = ev
-    save_state(state, args.out)
-
-
-def _cmd_merge_analyzer(args):
-    state = _load_or_empty(args.config)
-    success = args.exit_code == 0
-    update_stage(
-        state,
-        "analysis",
-        success=success,
-        model_name=args.model_name or None,
-        problem_json=args.problem_json or None,
-    )
-    if not success:
-        record_error(
-            state,
-            "analysis",
-            "analyze-sample failed or no problem.json produced",
-            args.exit_code,
-        )
-    save_state(state, args.out)
-
-
-def _cmd_merge_assembler(args):
-    state = _load_or_empty(args.config)
-    success = args.exit_code == 0
-    update_stage(
-        state,
-        "assembly",
-        success=success,
-        isaac_record=args.isaac_record or None,
-    )
-    if not success:
-        record_error(state, "assembly", "data-assembler failed", args.exit_code)
-    save_state(state, args.out)
-
-
-def main(argv=None):
-    parser = argparse.ArgumentParser(prog="ndip-state")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-
-    p = sub.add_parser("parse-config", help="Emit _env.sh from a state file")
-    p.add_argument("config")
-    p.add_argument("env_out")
-    p.set_defaults(func=_cmd_parse_config)
-
-    p = sub.add_parser("merge-reduction", help="Fold a reduction summary into state")
-    p.add_argument("config")
-    p.add_argument("summary")
-    p.add_argument("out")
-    p.set_defaults(func=_cmd_merge_reduction)
-
-    p = sub.add_parser("merge-analyzer", help="Fold analyzer outcome into state")
-    p.add_argument("config")
-    p.add_argument("exit_code", type=int)
-    p.add_argument("model_name")
-    p.add_argument("problem_json")
-    p.add_argument("out")
-    p.set_defaults(func=_cmd_merge_analyzer)
-
-    p = sub.add_parser("merge-assembler", help="Fold assembler outcome into state")
-    p.add_argument("config")
-    p.add_argument("exit_code", type=int)
-    p.add_argument("isaac_record")
-    p.add_argument("out")
-    p.set_defaults(func=_cmd_merge_assembler)
-
-    args = parser.parse_args(argv)
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()
+exports = {
+    "OUTPUT_DIR": _path(s, "output_directory"),
+    "EVENT_FILE": event_file,
+    "TEMPLATE": _path(s, "template_file"),
+    "DATA_DIR": _path(s, "data_directory") or (os.path.dirname(event_file) if event_file else ""),
+    "CONTEXT_FILE": _path(s, "context_file"),
+    "REFLECTIVITY_FILE": red.get("result_file") or s.get("result_file", ""),
+    "SEQUENCE_TOTAL": "" if seq is None else str(seq),
+    "LLM_PROVIDER": llm.get("provider") or s.get("llm_provider", ""),
+    "LLM_MODEL": llm.get("model") or s.get("llm_model", ""),
+    "LLM_BASE_URL": llm.get("base_url") or s.get("llm_base_url", ""),
+}
+with open(env_path, "w") as f:
+    for k, v in exports.items():
+        f.write("export %s=%s\n" % (k, shlex.quote(str(v))))
 #end raw</configfile>
     </configfiles>
 
@@ -323,107 +69,44 @@ if __name__ == "__main__":
 
     <command detect_errors="exit_code"><![CDATA[
         #if $config_json
-            python '$state_module' parse-config '$config_json' _env.sh &&
+            python '$state_env' '$config_json' _env.sh &&
             . _env.sh &&
         #else
             export OUTPUT_DIR='output' &&
-            #if $reflectivity
-                export REFLECTIVITY_FILE='$reflectivity' &&
-            #else
-                export REFLECTIVITY_FILE='' &&
-            #end if
-            #if $model
-                export FINAL_MODEL='$model' &&
-            #else
-                export FINAL_MODEL='' &&
-            #end if
-            export RAW_DATA='' &&
-            export MODEL_AVAILABLE='1' &&
         #end if
 
         ASSEMBLED_DIR="\$OUTPUT_DIR/assembled" &&
-
-        REFLECTIVITY_INPUT="\$REFLECTIVITY_FILE" &&
-        if [ -z "\$REFLECTIVITY_INPUT" ] || [ ! -f "\$REFLECTIVITY_INPUT" ]; then
-            echo "Falling back to reflectivity tool input." | tee -a $output;
-            #if $reflectivity
-                REFLECTIVITY_INPUT='$reflectivity';
-            #else
-                REFLECTIVITY_INPUT='';
-            #end if
-        else
-            echo "Using reflectivity: \$REFLECTIVITY_INPUT" | tee -a $output;
-        fi &&
-
-        MODEL_INPUT="\$FINAL_MODEL" &&
-        USE_MODEL=1 &&
-        if [ "\$MODEL_AVAILABLE" != "1" ]; then
-            echo "analysis.success is false; skipping -m option to data-assembler ingest." | tee -a $output;
-            USE_MODEL=0;
-        else
-            if [ -z "\$MODEL_INPUT" ] || [ ! -f "\$MODEL_INPUT" ]; then
-                echo "Falling back to model tool input." | tee -a $output;
-                #if $model
-                    MODEL_INPUT='$model';
-                #else
-                    MODEL_INPUT='';
-                #end if
-            else
-                echo "Using model: \$MODEL_INPUT" | tee -a $output;
-            fi;
-        fi &&
-
         mkdir -p "\$ASSEMBLED_DIR" &&
+
         #if $parquet
             mkdir parquet &&
             tar -xzvf $parquet -C parquet &&
         #end if
 
-        set -o pipefail;
-        if [ "\$USE_MODEL" = "1" ]; then
-            data-assembler ingest
-                            -r "\$REFLECTIVITY_INPUT"
-                            #if $parquet
-                                -p parquet
-                            #end if
-                            -m "\$MODEL_INPUT"
-                            --nexus-file "\$RAW_DATA"
-                            -o "\$ASSEMBLED_DIR"
-                    > >(tee -a $output) 2> >(tee -a $output >&2) &&
-            nr-isaac-format convert-ingest "\$ASSEMBLED_DIR"
-                            --raw "\$RAW_DATA"
-                    > >(tee -a $output) 2> >(tee -a $output >&2);
-            ASSEMBLE_EXIT=\$?;
-        else
-            data-assembler ingest
-                            -r "\$REFLECTIVITY_INPUT"
-                            #if $parquet
-                                -p parquet
-                            #end if
-                            --nexus-file "\$RAW_DATA"
-                            -o "\$ASSEMBLED_DIR"
-                    > >(tee -a $output) 2> >(tee -a $output >&2) &&
-            nr-isaac-format convert-ingest "\$ASSEMBLED_DIR"
-                            --raw "\$RAW_DATA"
-                    > >(tee -a $output) 2> >(tee -a $output >&2);
-            ASSEMBLE_EXIT=\$?;
-        fi;
-        set +o pipefail;
-        echo "--- data-assembler exit code: \$ASSEMBLE_EXIT ---" | tee -a $output;
+        INGEST_STATE="\$ASSEMBLED_DIR/_ingest_state.json" &&
 
-        ISAAC_RECORD=`ls -t "\$ASSEMBLED_DIR"/isaac_record_*.json 2>/dev/null | head -n 1` &&
-        echo "isaac_record: \$ISAAC_RECORD" | tee -a $output &&
-
-        tar -czvf $out_gz -C "\$ASSEMBLED_DIR" . &&
-
-        python '$state_module' merge-assembler
+        data-assembler ingest
+                -o "\$ASSEMBLED_DIR"
                 #if $config_json
-                    '$config_json'
-                #else
-                    ''
+                    --state-in '$config_json'
                 #end if
-                "\$ASSEMBLE_EXIT"
-                "\$ISAAC_RECORD"
-                '$updated_config'
+                --state-out "\$INGEST_STATE"
+                #if $reflectivity
+                    -r '$reflectivity'
+                #end if
+                #if $parquet
+                    -p parquet
+                #end if
+                #if $model
+                    -m '$model'
+                #end if
+                > >(tee -a $output) 2> >(tee -a $output >&2) &&
+
+        nr-isaac-format convert-ingest "\$ASSEMBLED_DIR"
+                --state-in "\$INGEST_STATE"
+                --state-out '$updated_config'
+                > >(tee -a $output) 2> >(tee -a $output >&2) &&
+
+        tar -czvf $out_gz -C "\$ASSEMBLED_DIR" .
     ]]></command>
 </tool>
