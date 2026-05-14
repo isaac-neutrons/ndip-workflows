@@ -73,7 +73,7 @@ with open(env_path, "w") as f:
     </outputs>
 
     <command detect_errors="exit_code"><![CDATA[
-        #if $config_json
+        #if $config_json and str($config_json) != "None"
             pixi run --as-is --manifest-path /app python '$state_env' '$config_json' _env.sh &&
             . _env.sh &&
         #else
@@ -89,7 +89,7 @@ with open(env_path, "w") as f:
                 --event-file \$EVENT_FILE
                 --template \$TEMPLATE
                 --output-dir "\$OUTPUT_DIR"
-                #if $config_json
+                #if $config_json and str($config_json) != "None"
                     --state-in '$config_json'
                 #end if
                 --state-out '$updated_config'

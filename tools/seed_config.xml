@@ -7,7 +7,7 @@
     </creator>
 
     <requirements>
-        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/ndip-workflows:latest</container>
+        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/ndip-workflows:4b7a518e270f1561eb835b69db765971876598ae</container>
     </requirements>
 
     <inputs>
