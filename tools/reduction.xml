@@ -68,7 +68,6 @@ with open(env_path, "w") as f:
     <outputs>
         <data format="txt" name="output" label="Reduction Console Output"></data>
         <data format="txt" name="reflectivity" label="Reflectivity File"></data>
-        <data format="txt" name="identifier" label="Dataset Identifier"></data>
         <data format="json" name="updated_config" label="Updated JSON Configuration"></data>
     </outputs>
 
@@ -94,7 +93,6 @@ with open(env_path, "w") as f:
                 #end if
                 --state-out '$updated_config'
                 > >(tee -a $output) 2> >(tee -a $output >&2) &&
-        cat "\$OUTPUT_DIR/.last_reduced_set" > $identifier &&
         COMBINED_FILE=`pixi run --as-is --manifest-path /app python -c "import json,sys; d=json.load(open(sys.argv[1])); print((d.get('reduction') or {}).get('combined_file') or '')" '$updated_config'` &&
         if [ -z "\$COMBINED_FILE" ] || [ ! -f "\$COMBINED_FILE" ]; then
             echo "reducer did not write a usable combined_file to state" | tee -a $output >&2;
