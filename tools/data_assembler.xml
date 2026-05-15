@@ -5,7 +5,7 @@
         <organization url="https://www.ornl.gov/" name="ORNL"/>
     </creator>
     <requirements>
-        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/data-assembler:sha-d378fd8</container>
+        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/data-assembler:sha-d27136e</container>
     </requirements>
     <inputs>
         <param name="reflectivity" type="data" format="txt"  label="Reflectivity File" optional="true" help="Required unless provided via the v1 state JSON as 'reduction.partial_file'."></param>
