@@ -6,11 +6,11 @@ import pytest
 
 from ndip_state.state import (
     SCHEMA_VERSION,
+    build_state,
     emit_env,
     empty_state,
     load_state,
     main,
-    migrate_v0_to_v1,
     record_error,
     save_state,
     update_stage,
@@ -28,8 +28,10 @@ def test_empty_state_has_v1_skeleton():
     assert s["errors"] == []
 
 
-def test_migrate_v0_flat_to_v1():
-    v0 = {
+def test_build_state_from_flat_input():
+    """build_state translates a flat operator-facing dict (yaml-parser /
+    seed-config shape) into the nested v1 form."""
+    flat = {
         "run": 226644,
         "sequence_total": 3,
         "prompt": "Cu / Ti / Si in D2O",
@@ -44,13 +46,8 @@ def test_migrate_v0_flat_to_v1():
         "llm_provider": "local",
         "llm_model": "gpt-4",
         "llm_base_url": "https://example.com/openai/v1/",
-        "result_file": "/SNS/partial.txt",
-        "partial_file": "/SNS/partial.txt",
-        "combined_file": "/SNS/combined.txt",
-        "model_available": True,
-        "final_model": "/SNS/results/Cu-D2O-226642/problem.json",
     }
-    s = migrate_v0_to_v1(v0)
+    s = build_state(flat)
     assert s["schema_version"] == "1"
     assert s["run"] == 226644
     assert s["sequence_total"] == 3
@@ -61,40 +58,14 @@ def test_migrate_v0_flat_to_v1():
     assert s["llm"]["provider"] == "local"
     assert s["llm"]["model"] == "gpt-4"
     assert s["llm"]["base_url"] == "https://example.com/openai/v1/"
-    assert s["reduction"]["partial_file"] == "/SNS/partial.txt"
-    assert "result_file" not in s["reduction"]
-    assert s["reduction"]["combined_file"] == "/SNS/combined.txt"
-    assert s["analysis"]["success"] is True
-    assert s["analysis"]["problem_json"] == "/SNS/results/Cu-D2O-226642/problem.json"
 
 
-def test_migrate_preserves_unknown_top_level_keys():
-    s = migrate_v0_to_v1({"some_future_key": {"x": 1}, "run": 42})
+def test_build_state_preserves_unknown_top_level_keys():
+    """Unknown keys ride along untouched so forward-compatible YAML doesn't
+    silently lose data."""
+    s = build_state({"some_future_key": {"x": 1}, "run": 42})
     assert s["some_future_key"] == {"x": 1}
     assert s["run"] == 42
-
-
-def test_migrate_promotes_v0_result_file_to_partial_file():
-    """v0's redundant `result_file` alias maps to v1 `reduction.partial_file`."""
-    s = migrate_v0_to_v1({"result_file": "/legacy/p.txt"})
-    assert s["reduction"]["partial_file"] == "/legacy/p.txt"
-    assert "result_file" not in s["reduction"]
-    assert "result_file" not in s
-
-
-def test_migrate_drops_redundant_v0_result_file_when_partial_present():
-    """If both flat keys are present, partial_file wins; result_file is dropped."""
-    s = migrate_v0_to_v1({"partial_file": "/p.txt", "result_file": "/ignored.txt"})
-    assert s["reduction"]["partial_file"] == "/p.txt"
-    assert "result_file" not in s["reduction"]
-
-
-def test_load_state_v0_input(tmp_path):
-    p = tmp_path / "v0.json"
-    p.write_text(json.dumps({"event_file": "/a.h5"}))
-    s = load_state(str(p))
-    assert s["schema_version"] == "1"
-    assert s["paths"]["event_file"] == "/a.h5"
 
 
 def test_load_state_v1_input(tmp_path):
@@ -224,20 +195,6 @@ def test_cli_merge_reduction_propagates_raw_data(tmp_path):
     main(["merge-reduction", str(config), str(summary), str(out)])
     s = load_state(str(out))
     assert s["paths"]["raw_data"] == "/event.h5"
-
-
-def test_cli_merge_reduction_from_v0_input(tmp_path):
-    config = tmp_path / "config.json"
-    config.write_text(json.dumps({"event_file": "/legacy.h5"}))
-    summary = tmp_path / "summary.json"
-    summary.write_text(json.dumps({"partial_file": "/p.txt", "combined_file": "/c.txt"}))
-    out = tmp_path / "out.json"
-    main(["merge-reduction", str(config), str(summary), str(out)])
-    s = load_state(str(out))
-    assert s["schema_version"] == "1"
-    assert s["paths"]["event_file"] == "/legacy.h5"
-    assert s["paths"]["raw_data"] == "/legacy.h5"
-    assert s["reduction"]["success"] is True
 
 
 def test_cli_merge_analyzer_success(tmp_path):

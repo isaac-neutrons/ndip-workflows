@@ -12,20 +12,47 @@ canonical Python implementation is in
 ## The chain
 
 ```
-yaml-parser ──▶ reduction.xml ──▶ simple_analyzer.xml ──▶ data_assembler.xml
-   v1 seed       reduction.*        analysis.*               assembly.*
+seed_config | yaml_parser  ──▶ reduction.xml ──▶ simple_analyzer.xml ──▶ data_assembler.xml
+       v1 seed                  reduction.*        analysis.*               assembly.*
 ```
 
-Each tool accepts `config_json` (a v1 state) and emits `updated_config`
-(the same state plus its own stage block). Underlying CLIs
-(`simple-reduction`, `plan-data`, `analyze-sample`, `data-assembler
-ingest`, `nr-isaac-format convert-ingest`) speak the same contract via
-`--state-in PATH` / `--state-out PATH`, so an agent can drive the
-pipeline directly without Galaxy when it needs to.
+Each downstream tool accepts `config_json` (a v1 state) and emits
+`updated_config` (the same state plus its own stage block). Underlying
+CLIs (`simple-reduction`, `plan-data`, `analyze-sample`,
+`data-assembler ingest`, `nr-isaac-format convert-ingest`) speak the
+same contract via `--state-in PATH` / `--state-out PATH`, so an agent
+can drive the pipeline directly without Galaxy when it needs to.
 
-## Step 0 — batch YAML
+## Step 0 — produce the v1 seed
 
-The operator hands in one YAML file describing the runs:
+There are two entry points; pick whichever fits the situation.
+
+**`seed-config`** (single run, on-demand): give it the run's event-file
+path and a tiny seed (JSON or YAML) carrying just the things this tool
+can't derive from the path. The new
+[seed_config.xml](../tools/seed_config.xml) wraps it for Galaxy.
+
+```yaml
+# seed.yaml — required: template_file, output_directory, context_file, sequence_total
+template_file:     autoreduce/template_down.xml
+output_directory:  isaac/reduction/sample5
+context_file:      isaac/context.md
+sequence_total:    3
+prompt:            "Deposited 50 nm Cu on 3 nm Ti on Si, in D2O. Back reflection."
+```
+
+```
+seed-config /SNS/REF_L/IPTS-36897/nexus/REF_L_226644.nxs.h5 seed.yaml -o 226644.json
+```
+
+Relative paths in the seed resolve against the IPTS shared root parsed
+from the event-file path
+(`/SNS/<INSTRUMENT>/<IPTS>/shared`). Absolute paths pass through.
+
+**`yaml-parser`** (batched runs): one YAML file describing multiple
+runs, common defaults under `common:`. The
+[yaml_parser.xml](../tools/yaml_parser.xml) wrapper splits it into a
+Galaxy `Collection` of per-run JSON states.
 
 ```yaml
 - run: 226644
@@ -41,15 +68,15 @@ The operator hands in one YAML file describing the runs:
   llm_base_url:      https://aoai-eastus-bead.openai.azure.com/openai/v1/
 ```
 
-## Step 1 — yaml-parser → v1 seed
-
-`yaml-parser` reads the YAML, merges any `common:` block, and writes one
-v1 JSON per run via `migrate_v0_to_v1()`. Per-run output (`226644.json`):
+Either way the result is the same shape — a v1 state. Per-run output
+(`226644.json`):
 
 ```json
 {
   "schema_version": "1",
   "run": 226644,
+  "instrument": "REF_L",
+  "ipts": "IPTS-36897",
   "sequence_total": 3,
   "prompt": "Deposited 50 nm Cu on 3 nm Ti on Si, in D2O. Back reflection.",
   "paths": {
@@ -58,7 +85,8 @@ v1 JSON per run via `migrate_v0_to_v1()`. Per-run output (`226644.json`):
     "template_file": "/SNS/REF_L/IPTS-36897/shared/autoreduce/template_down.xml",
     "context_file": "/SNS/REF_L/IPTS-36897/shared/isaac/context.md",
     "event_file": "/SNS/REF_L/IPTS-36897/nexus/REF_L_226644.nxs.h5",
-    "input_file": "/SNS/REF_L/IPTS-36897/nexus/REF_L_226644.nxs.h5"
+    "input_file": "/SNS/REF_L/IPTS-36897/nexus/REF_L_226644.nxs.h5",
+    "raw_data": "/SNS/REF_L/IPTS-36897/nexus/REF_L_226644.nxs.h5"
   },
   "llm": {
     "provider": "local",
@@ -72,9 +100,13 @@ v1 JSON per run via `migrate_v0_to_v1()`. Per-run output (`226644.json`):
 }
 ```
 
-That JSON is the workflow's `config_json` input.
+`instrument` and `ipts` come from `seed-config` parsing the event-file
+path (`yaml-parser` leaves them off — operators can add them
+explicitly in the batch YAML if needed). `paths.raw_data` is also
+populated by `seed-config` ahead of the reducer, which `yaml-parser`
+defers — both tools then converge after `reduction.xml` runs.
 
-## Step 2 — reduction.xml
+## Step 1 — reduction.xml
 
 The tool inlines a slim
 [`state_env`](../tools/reduction.xml) helper, sources its `_env.sh`
@@ -98,7 +130,7 @@ the Mantid reduction, then writes the same state back with a populated
 +    "success": true,
 +    "partial_file":  "/.../sample5/REFL_226642_3_226644_partial.txt",
 +    "combined_file": "/.../sample5/REFL_226642_combined_data_auto.txt",
-+    "metadata": {}
++    "metadata": {"first_run_of_set": 226642}
    },
 +  "paths": {
 +    ...,
@@ -107,14 +139,16 @@ the Mantid reduction, then writes the same state back with a populated
 ```
 
 The tool also emits the combined-reflectivity file as a separate Galaxy
-dataset, but everything else (paths, success, run, etc.) lives in
-`updated_config`.
+dataset, but everything else (paths, success, run, `first_run_of_set`, etc.)
+lives in `updated_config`. The `first_run_of_set` field used to surface
+as a separate `identifier` Galaxy output; downstream tools that need it
+should now read it from `state.reduction.metadata.first_run_of_set`.
 
-## Step 3 — simple_analyzer.xml
+## Step 2 — simple_analyzer.xml
 
 Two CLI invocations, both speaking state:
 
-### 3a · plan-data
+### 2a · plan-data
 
 ```sh
 plan-data "$REFLECTIVITY_FILE" "$CONTEXT_FILE" \
@@ -144,9 +178,9 @@ plan-data "$REFLECTIVITY_FILE" "$CONTEXT_FILE" \
 ```
 
 The tool's bash extracts `analysis.perform_assembly` from `$PLAN_STATE`
-with a one-line python and uses it as the gate for step 3b.
+with a one-line python and uses it as the gate for step 2b.
 
-### 3b · analyze-sample
+### 2b · analyze-sample
 
 ```sh
 analyze-sample --no-reduction-gate \
@@ -169,7 +203,10 @@ pipeline, then writes:
      "metadata": {
        ...,
 +      "pipeline_status": "ok",
-+      "completed_stages": ["partial", "fit"]
++      "completed_stages": ["partial", "fit"],
++      "results_dir": "/.../sample5/results",
++      "reports_dir": "/.../sample5/reports",
++      "models_dir":  "/.../sample5/models"
      }
    },
 ```
@@ -178,7 +215,7 @@ If `perform_assembly` was false the tool skips `analyze-sample` and just
 copies `$PLAN_STATE` into `updated_config` — `analysis.success` stays
 `null`, which downstream reads as "not attempted".
 
-## Step 4 — data_assembler.xml
+## Step 3 — data_assembler.xml
 
 Also two CLIs in a chain through an interim state file:
 
@@ -256,6 +293,8 @@ After all four tools, the same JSON that started with just `paths`,
 {
   "schema_version": "1",
   "run": 226644,
+  "instrument": "REF_L",
+  "ipts": "IPTS-36897",
   "sequence_total": 3,
   "prompt": "...",
   "paths": {
@@ -290,32 +329,27 @@ After all four tools, the same JSON that started with just `paths`,
 ## Running the chain without Galaxy
 
 Because every CLI accepts `--state-in / --state-out`, an agent (or a
-shell script, or a notebook) can drive the pipeline directly:
+shell script, or a notebook) can drive the pipeline directly. Starting
+from just the event-file path and a small seed:
 
 ```bash
 S=/tmp/state.json
-cp 226644.json $S        # seed from yaml-parser output
 
-simple-reduction       --state-in $S --state-out $S \
-    --output-dir /SNS/.../sample5
+seed-config /SNS/REF_L/IPTS-36897/nexus/REF_L_226644.nxs.h5 seed.yaml -o $S
 
-plan-data              --state-in $S --state-out $S \
-    --output-dir /SNS/.../sample5/plan --sequence-total 3 \
-    /SNS/.../partial.txt /SNS/.../context.md
-
-analyze-sample         --state-in $S --state-out $S --no-reduction-gate
-
-data-assembler ingest  --state-in $S --state-out $S \
-    -o /SNS/.../sample5/assembled
-
-nr-isaac-format convert-ingest /SNS/.../sample5/assembled \
-                       --state-in $S --state-out $S
+simple-reduction              --state-in $S --state-out $S
+plan-data                     --state-in $S --state-out $S
+analyze-sample                --state-in $S --state-out $S --no-reduction-gate
+data-assembler ingest         --state-in $S --state-out $S
+nr-isaac-format convert-ingest --state-in $S --state-out $S
 ```
 
-After each step `$S` is the latest snapshot of the run. Failures are
-recorded as entries in `state.errors[]` with a `stage` and `message`,
-and the corresponding stage's `success` flips to `false` — no need to
-sift through exit codes.
+Every required path the CLIs need is in `$S` after `seed-config` runs,
+so no extra positional arguments are needed. After each step `$S` is the
+latest snapshot of the run. Failures are recorded as entries in
+`state.errors[]` with a `stage` and `message`, and the corresponding
+stage's `success` flips to `false` — no need to sift through exit
+codes.
 
 ## Where things live
 
@@ -324,6 +358,7 @@ sift through exit codes.
 | Schema definition                    | [docs/state-schema.md](state-schema.md)               |
 | Canonical Python module              | [src/ndip_state/state.py](../src/ndip_state/state.py) |
 | Slim env-emitter inlined in tool XMLs| `<configfile name="state_env">` in each `tools/*.xml` |
-| yaml-parser → v1 seed                | [src/yaml_parser/cli.py](../src/yaml_parser/cli.py)   |
+| `yaml-parser` → v1 seed (batched)    | [src/yaml_parser/cli.py](../src/yaml_parser/cli.py)   |
+| `seed-config` → v1 seed (single run) | [src/yaml_parser/seed.py](../src/yaml_parser/seed.py) |
 | CLI state IO (analyzer image)        | `analyzer_tools/state.py` in mdoucet/analyzer         |
 | CLI state IO (assembler image)       | `assembler/state.py` in isaac-neutrons/data-assembler |

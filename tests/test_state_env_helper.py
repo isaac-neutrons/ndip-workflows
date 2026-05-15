@@ -97,21 +97,6 @@ def test_helper_emits_expected_vars_for_v1_state(tmp_path):
     assert "export LLM_BASE_URL=https://x/v1/" in text
 
 
-def test_helper_accepts_v0_flat_state(tmp_path):
-    """Flat v0 keys still resolve via the (paths.* or top-level) fallback."""
-    state = {
-        "event_file": "/legacy.h5",
-        "partial_file": "/legacy/p.txt",
-        "llm_model": "gpt-3",
-        "output_directory": "/legacy/out",
-    }
-    text = _run_helper(tmp_path, state)
-    assert "export EVENT_FILE=/legacy.h5" in text
-    assert "export REFLECTIVITY_FILE=/legacy/p.txt" in text
-    assert "export LLM_MODEL=gpt-3" in text
-    assert "export OUTPUT_DIR=/legacy/out" in text
-
-
 def test_helper_handles_missing_state_path(tmp_path):
     """An empty / nonexistent input path is OK — emits empty exports."""
     text = _run_helper(tmp_path, state=None)

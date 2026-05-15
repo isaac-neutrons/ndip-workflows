@@ -5,12 +5,12 @@ A single JSON document flows through every Galaxy tool
 (reduction -> simple_analyzer -> data_assembler). It captures:
 
   - schema_version: the on-disk schema version ("1").
-  - run, sequence_total, prompt: top-level scalars.
+  - run, instrument, ipts, sequence_total, prompt: top-level scalars.
   - paths: input/derived filesystem paths shared across stages.
   - llm:   LLM endpoint configuration.
   - reduction / analysis / assembly: per-stage outcome blocks. Each block
     has at minimum ``success`` (bool|None) and ``metadata`` (dict). Helpers
-    in this module merge stage-specific keys (e.g. result_file, problem_json).
+    in this module merge stage-specific keys (e.g. partial_file, problem_json).
   - errors: append-only list of stage error records.
 
 This module is intentionally stdlib-only so the same source can be inlined
@@ -38,13 +38,11 @@ _PATH_KEYS = (
 )
 
 _LLM_KEY_MAP = (
-    # (v1 name, v0 name)
+    # (v1 nested key, flat-input key used by yaml-parser / seed-config)
     ("provider", "llm_provider"),
     ("model", "llm_model"),
     ("base_url", "llm_base_url"),
 )
-
-_REDUCTION_KEYS = ("partial_file", "combined_file")
 
 
 def empty_state():
@@ -61,56 +59,36 @@ def empty_state():
 
 
 def _path(state, key, default=""):
-    """Read a path-style value from a v1 (nested) or v0 (flat) state dict."""
-    p = state.get("paths") or {}
-    return p.get(key) or state.get(key) or default
+    """Read a path-style value from the state's ``paths.*`` block."""
+    return (state.get("paths") or {}).get(key) or default
 
 
-def migrate_v0_to_v1(d):
-    """Translate a flat v0 state dict into the nested v1 form.
+def build_state(flat):
+    """Construct a v1 state from a flat-shaped input dict.
 
-    Unknown top-level keys are preserved at the top level so callers can
-    add forward-compatible fields without losing them on round-trip.
+    Used by ``yaml-parser`` and ``seed-config`` to translate operator-authored
+    YAML / JSON (where everything is one flat namespace) into the nested v1
+    shape. Known keys land in their target blocks; anything else is preserved
+    verbatim at the top level for forward compatibility.
     """
     state = empty_state()
-    leftover = dict(d)
+    leftover = dict(flat)
     leftover.pop("schema_version", None)
 
     for k in _PATH_KEYS:
         if k in leftover:
             state["paths"][k] = leftover.pop(k)
 
-    for v1_key, v0_key in _LLM_KEY_MAP:
-        if v0_key in leftover:
-            state["llm"][v1_key] = leftover.pop(v0_key)
-
-    for k in _REDUCTION_KEYS:
-        if k in leftover:
-            state["reduction"][k] = leftover.pop(k)
-
-    # v0 had a redundant `result_file` alias for `partial_file`. Promote it
-    # only when `partial_file` is absent so the canonical key wins.
-    if "result_file" in leftover:
-        result = leftover.pop("result_file")
-        state["reduction"].setdefault("partial_file", result)
-
-    if "final_model" in leftover:
-        state["analysis"]["problem_json"] = leftover.pop("final_model")
-    if "model_available" in leftover:
-        state["analysis"]["success"] = bool(leftover.pop("model_available"))
-    if "model_name" in leftover:
-        state["analysis"]["model_name"] = leftover.pop("model_name")
-    if "perform_assembly" in leftover:
-        state["analysis"]["perform_assembly"] = bool(leftover.pop("perform_assembly"))
-
-    if "isaac_record" in leftover:
-        state["assembly"]["isaac_record"] = leftover.pop("isaac_record")
+    for v1_key, flat_key in _LLM_KEY_MAP:
+        if flat_key in leftover:
+            state["llm"][v1_key] = leftover.pop(flat_key)
 
     state.update(leftover)
     return state
 
 
 def _ensure_blocks(d):
+    """Fill missing top-level blocks on a v1 state read from disk."""
     base = empty_state()
     for k, v in base.items():
         if k not in d:
@@ -122,9 +100,10 @@ def _ensure_blocks(d):
 
 
 def load_state(path):
-    """Load a state file, transparently migrating v0 to v1.
+    """Load a v1 state file.
 
-    An empty / missing path returns an empty v1 state.
+    An empty / missing path returns an empty v1 state. The pipeline has only
+    ever produced v1 documents; no v0 migration is attempted.
     """
     if not path or not os.path.isfile(path):
         return empty_state()
@@ -132,9 +111,7 @@ def load_state(path):
         d = json.load(f)
     if not isinstance(d, dict):
         return empty_state()
-    if d.get("schema_version") == SCHEMA_VERSION:
-        return _ensure_blocks(d)
-    return migrate_v0_to_v1(d)
+    return _ensure_blocks(d)
 
 
 def save_state(state, path):
