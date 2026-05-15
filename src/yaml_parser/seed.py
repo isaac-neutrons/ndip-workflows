@@ -20,16 +20,14 @@ walking up from the event file's directory to the IPTS-named segment.
 """
 
 import json
-import os
 import re
-import sys
 from pathlib import Path
 from typing import Optional
 
 import click
 import yaml
 
-from ndip_state.state import migrate_v0_to_v1
+from ndip_state.state import build_state
 
 
 _REQUIRED_KEYS = ("template_file", "output_directory", "context_file", "sequence_total")
@@ -156,7 +154,7 @@ def _build_state(event_file: str, seed: dict) -> dict:
     if seed.get("prompt"):
         flat["prompt"] = seed["prompt"]
 
-    state = migrate_v0_to_v1(flat)
+    state = build_state(flat)
 
     # Identifiers — additive top-level fields, preserved through migration.
     state["instrument"] = derived["instrument"]

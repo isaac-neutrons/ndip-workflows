@@ -33,7 +33,7 @@
 
     <configfiles>
         <configfile name="state_env">#raw
-"""Emit shell exports for tool-XML bash from a v1 (or v0) workflow-state JSON.
+"""Emit shell exports for tool-XML bash from a v1 workflow-state JSON.
 
 Slim helper inlined in each tool so the container doesn't need ndip_state
 installed. Only emits the env vars the bash actually uses; merge logic is
@@ -44,8 +44,7 @@ import json, os, shlex, sys
 
 
 def _path(s, key, default=""):
-    p = s.get("paths") or {}
-    return p.get(key) or s.get(key) or default
+    return (s.get("paths") or {}).get(key) or default
 
 
 state_path, env_path = sys.argv[1], sys.argv[2]
@@ -66,11 +65,11 @@ exports = {
     "TEMPLATE": _path(s, "template_file"),
     "DATA_DIR": _path(s, "data_directory") or (os.path.dirname(event_file) if event_file else ""),
     "CONTEXT_FILE": _path(s, "context_file"),
-    "REFLECTIVITY_FILE": red.get("result_file") or s.get("result_file", ""),
+    "REFLECTIVITY_FILE": red.get("partial_file", ""),
     "SEQUENCE_TOTAL": "" if seq is None else str(seq),
-    "LLM_PROVIDER": llm.get("provider") or s.get("llm_provider", ""),
-    "LLM_MODEL": llm.get("model") or s.get("llm_model", ""),
-    "LLM_BASE_URL": llm.get("base_url") or s.get("llm_base_url", ""),
+    "LLM_PROVIDER": llm.get("provider", ""),
+    "LLM_MODEL": llm.get("model", ""),
+    "LLM_BASE_URL": llm.get("base_url", ""),
 }
 with open(env_path, "w") as f:
     for k, v in exports.items():
@@ -103,7 +102,7 @@ with open(env_path, "w") as f:
 
         if [ -z "\$REFLECTIVITY_FILE" ] || [ "\$REFLECTIVITY_FILE" = "None" ] || [ ! -f "\$REFLECTIVITY_FILE" ]; then
             echo "ERROR: reflectivity file is missing or unreadable: '\$REFLECTIVITY_FILE'" | tee -a $output >&2;
-            echo "       Connect a config_json with reduction.result_file set, or supply the Reflectivity File input." | tee -a $output >&2;
+            echo "       Connect a config_json with reduction.partial_file set, or supply the Reflectivity File input." | tee -a $output >&2;
             exit 1;
         fi &&
         if [ -z "\$CONTEXT_FILE" ] || [ "\$CONTEXT_FILE" = "None" ] || [ ! -f "\$CONTEXT_FILE" ]; then

@@ -5,11 +5,11 @@ Public API mirrors :mod:`ndip_state.state`.
 
 from .state import (
     SCHEMA_VERSION,
+    build_state,
     empty_state,
     emit_env,
     load_state,
     main,
-    migrate_v0_to_v1,
     record_error,
     save_state,
     update_stage,
@@ -17,11 +17,11 @@ from .state import (
 
 __all__ = [
     "SCHEMA_VERSION",
+    "build_state",
     "empty_state",
     "emit_env",
     "load_state",
     "main",
-    "migrate_v0_to_v1",
     "record_error",
     "save_state",
     "update_stage",

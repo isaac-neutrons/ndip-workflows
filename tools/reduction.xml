@@ -20,7 +20,7 @@
 
     <configfiles>
         <configfile name="state_env">#raw
-"""Emit shell exports for tool-XML bash from a v1 (or v0) workflow-state JSON.
+"""Emit shell exports for tool-XML bash from a v1 workflow-state JSON.
 
 Slim helper inlined in each tool so the container doesn't need ndip_state
 installed. Only emits the env vars the bash actually uses; merge logic is
@@ -31,8 +31,7 @@ import json, os, shlex, sys
 
 
 def _path(s, key, default=""):
-    p = s.get("paths") or {}
-    return p.get(key) or s.get(key) or default
+    return (s.get("paths") or {}).get(key) or default
 
 
 state_path, env_path = sys.argv[1], sys.argv[2]
@@ -53,11 +52,11 @@ exports = {
     "TEMPLATE": _path(s, "template_file"),
     "DATA_DIR": _path(s, "data_directory") or (os.path.dirname(event_file) if event_file else ""),
     "CONTEXT_FILE": _path(s, "context_file"),
-    "REFLECTIVITY_FILE": red.get("result_file") or s.get("result_file", ""),
+    "REFLECTIVITY_FILE": red.get("partial_file", ""),
     "SEQUENCE_TOTAL": "" if seq is None else str(seq),
-    "LLM_PROVIDER": llm.get("provider") or s.get("llm_provider", ""),
-    "LLM_MODEL": llm.get("model") or s.get("llm_model", ""),
-    "LLM_BASE_URL": llm.get("base_url") or s.get("llm_base_url", ""),
+    "LLM_PROVIDER": llm.get("provider", ""),
+    "LLM_MODEL": llm.get("model", ""),
+    "LLM_BASE_URL": llm.get("base_url", ""),
 }
 with open(env_path, "w") as f:
     for k, v in exports.items():
@@ -68,7 +67,6 @@ with open(env_path, "w") as f:
     <outputs>
         <data format="txt" name="output" label="Reduction Console Output"></data>
         <data format="txt" name="reflectivity" label="Reflectivity File"></data>
-        <data format="txt" name="identifier" label="Dataset Identifier"></data>
         <data format="json" name="updated_config" label="Updated JSON Configuration"></data>
     </outputs>
 
@@ -94,7 +92,6 @@ with open(env_path, "w") as f:
                 #end if
                 --state-out '$updated_config'
                 > >(tee -a $output) 2> >(tee -a $output >&2) &&
-        cat "\$OUTPUT_DIR/.last_reduced_set" > $identifier &&
         COMBINED_FILE=`pixi run --as-is --manifest-path /app python -c "import json,sys; d=json.load(open(sys.argv[1])); print((d.get('reduction') or {}).get('combined_file') or '')" '$updated_config'` &&
         if [ -z "\$COMBINED_FILE" ] || [ ! -f "\$COMBINED_FILE" ]; then
             echo "reducer did not write a usable combined_file to state" | tee -a $output >&2;
