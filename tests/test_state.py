@@ -61,7 +61,8 @@ def test_migrate_v0_flat_to_v1():
     assert s["llm"]["provider"] == "local"
     assert s["llm"]["model"] == "gpt-4"
     assert s["llm"]["base_url"] == "https://example.com/openai/v1/"
-    assert s["reduction"]["result_file"] == "/SNS/partial.txt"
+    assert s["reduction"]["partial_file"] == "/SNS/partial.txt"
+    assert "result_file" not in s["reduction"]
     assert s["reduction"]["combined_file"] == "/SNS/combined.txt"
     assert s["analysis"]["success"] is True
     assert s["analysis"]["problem_json"] == "/SNS/results/Cu-D2O-226642/problem.json"
@@ -71,6 +72,21 @@ def test_migrate_preserves_unknown_top_level_keys():
     s = migrate_v0_to_v1({"some_future_key": {"x": 1}, "run": 42})
     assert s["some_future_key"] == {"x": 1}
     assert s["run"] == 42
+
+
+def test_migrate_promotes_v0_result_file_to_partial_file():
+    """v0's redundant `result_file` alias maps to v1 `reduction.partial_file`."""
+    s = migrate_v0_to_v1({"result_file": "/legacy/p.txt"})
+    assert s["reduction"]["partial_file"] == "/legacy/p.txt"
+    assert "result_file" not in s["reduction"]
+    assert "result_file" not in s
+
+
+def test_migrate_drops_redundant_v0_result_file_when_partial_present():
+    """If both flat keys are present, partial_file wins; result_file is dropped."""
+    s = migrate_v0_to_v1({"partial_file": "/p.txt", "result_file": "/ignored.txt"})
+    assert s["reduction"]["partial_file"] == "/p.txt"
+    assert "result_file" not in s["reduction"]
 
 
 def test_load_state_v0_input(tmp_path):
@@ -99,10 +115,10 @@ def test_load_state_missing_path_returns_empty():
 
 def test_update_stage_shallow_merges_metadata():
     s = empty_state()
-    update_stage(s, "reduction", success=True, result_file="/r.txt", metadata={"foo": 1})
+    update_stage(s, "reduction", success=True, partial_file="/r.txt", metadata={"foo": 1})
     update_stage(s, "reduction", metadata={"bar": 2})
     assert s["reduction"]["success"] is True
-    assert s["reduction"]["result_file"] == "/r.txt"
+    assert s["reduction"]["partial_file"] == "/r.txt"
     assert s["reduction"]["metadata"] == {"foo": 1, "bar": 2}
 
 
@@ -120,7 +136,7 @@ def test_emit_env_writes_known_vars(tmp_path):
     s["paths"]["event_file"] = "/data/a.h5"
     s["paths"]["output_directory"] = "/out"
     s["llm"]["model"] = "gpt-4"
-    s["reduction"]["result_file"] = "/r.txt"
+    s["reduction"]["partial_file"] = "/r.txt"
     s["analysis"]["success"] = True
     s["analysis"]["problem_json"] = "/p.json"
 
@@ -194,7 +210,7 @@ def test_cli_merge_reduction(tmp_path):
     assert s["reduction"]["success"] is True
     assert s["reduction"]["partial_file"] == "/p.txt"
     assert s["reduction"]["combined_file"] == "/c.txt"
-    assert s["reduction"]["result_file"] == "/p.txt"
+    assert "result_file" not in s["reduction"]
 
 
 def test_cli_merge_reduction_propagates_raw_data(tmp_path):

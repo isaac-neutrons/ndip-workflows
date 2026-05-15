@@ -66,7 +66,7 @@ exports = {
     "TEMPLATE": _path(s, "template_file"),
     "DATA_DIR": _path(s, "data_directory") or (os.path.dirname(event_file) if event_file else ""),
     "CONTEXT_FILE": _path(s, "context_file"),
-    "REFLECTIVITY_FILE": red.get("result_file") or s.get("result_file", ""),
+    "REFLECTIVITY_FILE": red.get("partial_file") or s.get("partial_file", ""),
     "SEQUENCE_TOTAL": "" if seq is None else str(seq),
     "LLM_PROVIDER": llm.get("provider") or s.get("llm_provider", ""),
     "LLM_MODEL": llm.get("model") or s.get("llm_model", ""),
@@ -103,7 +103,7 @@ with open(env_path, "w") as f:
 
         if [ -z "\$REFLECTIVITY_FILE" ] || [ "\$REFLECTIVITY_FILE" = "None" ] || [ ! -f "\$REFLECTIVITY_FILE" ]; then
             echo "ERROR: reflectivity file is missing or unreadable: '\$REFLECTIVITY_FILE'" | tee -a $output >&2;
-            echo "       Connect a config_json with reduction.result_file set, or supply the Reflectivity File input." | tee -a $output >&2;
+            echo "       Connect a config_json with reduction.partial_file set, or supply the Reflectivity File input." | tee -a $output >&2;
             exit 1;
         fi &&
         if [ -z "\$CONTEXT_FILE" ] || [ "\$CONTEXT_FILE" = "None" ] || [ ! -f "\$CONTEXT_FILE" ]; then

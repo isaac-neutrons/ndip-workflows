@@ -96,7 +96,6 @@ the Mantid reduction, then writes the same state back with a populated
    "reduction": {
 -    "success": null, "metadata": {}
 +    "success": true,
-+    "result_file":   "/.../sample5/REFL_226642_3_226644_partial.txt",
 +    "partial_file":  "/.../sample5/REFL_226642_3_226644_partial.txt",
 +    "combined_file": "/.../sample5/REFL_226642_combined_data_auto.txt",
 +    "metadata": {}
@@ -191,7 +190,7 @@ data-assembler ingest \
     [ -r $reflectivity ] [ -p parquet ] [ -m $model ]
 ```
 
-`data-assembler ingest` fills `--reduced` from `reduction.result_file`,
+`data-assembler ingest` fills `--reduced` from `reduction.partial_file`,
 `--model` from `analysis.problem_json` (only when `analysis.success` is
 `true`), and `--nexus-file` from `paths.raw_data`. After writing the
 parquet bundle it records:
@@ -225,7 +224,7 @@ nr-isaac-format convert-ingest "$ASSEMBLED_DIR" \
 ```
 
 `convert-ingest` reads `assembly.metadata.ingest_dir`, `paths.raw_data`,
-and `reduction.result_file` from state, writes one
+and `reduction.partial_file` from state, writes one
 `isaac_record_<run>.json`, and finalizes:
 
 ```diff
@@ -271,7 +270,7 @@ After all four tools, the same JSON that started with just `paths`,
   },
   "llm": {"provider": "...", "model": "...", "base_url": "..."},
   "reduction": {
-    "success": true, "result_file": "...", "partial_file": "...",
+    "success": true, "partial_file": "...",
     "combined_file": "...", "metadata": {}
   },
   "analysis": {

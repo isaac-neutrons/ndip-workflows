@@ -38,7 +38,6 @@ module via inlined configfiles.
   },
   "reduction": {
     "success":       true,
-    "result_file":   "/.../REFL_226642_3_226644_partial.txt",
     "partial_file":  "/.../REFL_226642_3_226644_partial.txt",
     "combined_file": "/.../REFL_226642_combined_data_auto.txt",
     "metadata": {}
@@ -82,9 +81,8 @@ module via inlined configfiles.
 
 | Stage     | Key             | Source                                                      |
 |-----------|-----------------|-------------------------------------------------------------|
-| reduction | `result_file`   | `simple-reduction --json` summary, `partial_file`           |
-| reduction | `partial_file`  | `simple-reduction --json` summary                           |
-| reduction | `combined_file` | `simple-reduction --json` summary                           |
+| reduction | `partial_file`  | `simple-reduction --state-out` (was: `--json` summary)      |
+| reduction | `combined_file` | `simple-reduction --state-out`                              |
 | analysis  | `model_name`    | `plan-data` YAML, top-level or `metadata.model_name`         |
 | analysis  | `problem_json`  | `$OUTPUT_DIR/results/<model_name>/problem.json`             |
 | analysis  | `perform_assembly` | `plan-data` YAML, `metadata.perform_assembly`            |
@@ -108,7 +106,7 @@ the top level; v1 groups them. The mapping is:
 | `llm_provider`     | `llm.provider`                |
 | `llm_model`        | `llm.model`                   |
 | `llm_base_url`     | `llm.base_url`                |
-| `result_file`      | `reduction.result_file`       |
+| `result_file`      | `reduction.partial_file` (alias dropped) |
 | `partial_file`     | `reduction.partial_file`      |
 | `combined_file`    | `reduction.combined_file`     |
 | `model_available`  | `analysis.success`            |
@@ -138,7 +136,7 @@ every stage:
 | `LLM_PROVIDER`      | `llm.provider`                               |
 | `LLM_MODEL`         | `llm.model`                                  |
 | `LLM_BASE_URL`      | `llm.base_url`                               |
-| `REFLECTIVITY_FILE` | `reduction.result_file`                      |
+| `REFLECTIVITY_FILE` | `reduction.partial_file`                     |
 | `PARTIAL_FILE`      | `reduction.partial_file`                     |
 | `COMBINED_FILE`     | `reduction.combined_file`                    |
 | `MODEL_NAME`        | `analysis.model_name`                        |

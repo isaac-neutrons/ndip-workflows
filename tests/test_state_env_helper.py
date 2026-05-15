@@ -79,7 +79,7 @@ def test_helper_emits_expected_vars_for_v1_state(tmp_path):
             "event_file": "/SNS/REF_L_226644.nxs.h5",
         },
         "llm": {"provider": "local", "model": "gpt-4", "base_url": "https://x/v1/"},
-        "reduction": {"result_file": "/SNS/partial.txt", "metadata": {}},
+        "reduction": {"partial_file": "/SNS/partial.txt", "metadata": {}},
         "analysis": {"metadata": {}},
         "assembly": {"metadata": {}},
         "errors": [],
@@ -101,7 +101,7 @@ def test_helper_accepts_v0_flat_state(tmp_path):
     """Flat v0 keys still resolve via the (paths.* or top-level) fallback."""
     state = {
         "event_file": "/legacy.h5",
-        "result_file": "/legacy/p.txt",
+        "partial_file": "/legacy/p.txt",
         "llm_model": "gpt-3",
         "output_directory": "/legacy/out",
     }

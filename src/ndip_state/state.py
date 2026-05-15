@@ -44,7 +44,7 @@ _LLM_KEY_MAP = (
     ("base_url", "llm_base_url"),
 )
 
-_REDUCTION_KEYS = ("result_file", "partial_file", "combined_file")
+_REDUCTION_KEYS = ("partial_file", "combined_file")
 
 
 def empty_state():
@@ -87,6 +87,12 @@ def migrate_v0_to_v1(d):
     for k in _REDUCTION_KEYS:
         if k in leftover:
             state["reduction"][k] = leftover.pop(k)
+
+    # v0 had a redundant `result_file` alias for `partial_file`. Promote it
+    # only when `partial_file` is absent so the canonical key wins.
+    if "result_file" in leftover:
+        result = leftover.pop("result_file")
+        state["reduction"].setdefault("partial_file", result)
 
     if "final_model" in leftover:
         state["analysis"]["problem_json"] = leftover.pop("final_model")
@@ -173,7 +179,7 @@ _ENV_FROM_STATE = (
     ("LLM_PROVIDER", lambda s: (s.get("llm") or {}).get("provider", "")),
     ("LLM_MODEL", lambda s: (s.get("llm") or {}).get("model", "")),
     ("LLM_BASE_URL", lambda s: (s.get("llm") or {}).get("base_url", "")),
-    ("REFLECTIVITY_FILE", lambda s: (s.get("reduction") or {}).get("result_file", "")),
+    ("REFLECTIVITY_FILE", lambda s: (s.get("reduction") or {}).get("partial_file", "")),
     ("PARTIAL_FILE", lambda s: (s.get("reduction") or {}).get("partial_file", "")),
     ("COMBINED_FILE", lambda s: (s.get("reduction") or {}).get("combined_file", "")),
     ("MODEL_NAME", lambda s: (s.get("analysis") or {}).get("model_name", "") or ""),
@@ -214,7 +220,6 @@ def _cmd_merge_reduction(args):
         state,
         "reduction",
         success=True,
-        result_file=partial,
         partial_file=partial,
         combined_file=combined,
     )
