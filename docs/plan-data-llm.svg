@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 940" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <!-- Background -->
+  <rect width="1600" height="940" fill="#ffffff"/>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Title -->
+  <text x="800" y="48" text-anchor="middle" font-size="30" font-weight="700" fill="#0f172a">plan-data · how the LLM builds the initial analysis state</text>
+  <text x="800" y="78" text-anchor="middle" font-size="16" fill="#475569">Five inputs assemble into one system + user prompt; the LLM returns a JSON job spec that becomes <tspan font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">state.analysis</tspan></text>
+
+  <!-- ============================================================ -->
+  <!-- Column 1: INPUTS                                              -->
+  <!-- ============================================================ -->
+  <text x="50" y="125" font-size="14" font-weight="700" fill="#64748b" letter-spacing="2">INPUTS</text>
+
+  <!-- Skill files -->
+  <g transform="translate(50, 140)">
+    <rect width="320" height="120" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="320" height="32" rx="10" fill="#3b82f6"/>
+    <rect y="22" width="320" height="10" fill="#3b82f6"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">SKILL FILES (authoritative)</text>
+    <text x="16" y="56" font-size="12" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">data-organization/SKILL.md</text>
+    <text x="16" y="74" font-size="12" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">create-model/SKILL.md</text>
+    <text x="16" y="92" font-size="12" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">plan-data/SKILL.md</text>
+    <text x="16" y="110" font-size="12" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">reflectometry-basics/SKILL.md</text>
+  </g>
+
+  <!-- Data file header -->
+  <g transform="translate(50, 280)">
+    <rect width="320" height="110" rx="10" fill="#f0fdf4" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="320" height="32" rx="10" fill="#16a34a"/>
+    <rect y="22" width="320" height="10" fill="#16a34a"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">DATA FILE HEADER</text>
+    <text x="16" y="54" font-size="11" fill="#334155">leading <tspan font-family="ui-monospace, 'SF Mono', Menlo, monospace">#</tspan> comment lines from</text>
+    <text x="16" y="70" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">reduction.partial_file</text>
+    <text x="16" y="90" font-size="11" fill="#64748b">e.g. <tspan font-family="ui-monospace, 'SF Mono', Menlo, monospace">Meta: { sequence_id, ...}</tspan></text>
+  </g>
+
+  <!-- Sibling files -->
+  <g transform="translate(50, 410)">
+    <rect width="320" height="100" rx="10" fill="#fefce8" stroke="#ca8a04" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="320" height="32" rx="10" fill="#ca8a04"/>
+    <rect y="22" width="320" height="10" fill="#ca8a04"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">SIBLING FILES</text>
+    <text x="16" y="54" font-size="11" fill="#334155">listdir of partial_file's parent</text>
+    <text x="16" y="74" font-size="11" fill="#64748b">→ lets the LLM judge whether</text>
+    <text x="16" y="90" font-size="11" fill="#64748b">  the sequence is complete</text>
+  </g>
+
+  <!-- Context file -->
+  <g transform="translate(50, 530)">
+    <rect width="320" height="120" rx="10" fill="#fdf2f8" stroke="#db2777" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="320" height="32" rx="10" fill="#db2777"/>
+    <rect y="22" width="320" height="10" fill="#db2777"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">CONTEXT FILE  (operator-supplied)</text>
+    <text x="16" y="54" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">paths.context_file</text>
+    <text x="16" y="74" font-size="11" fill="#334155">free-form Markdown describing</text>
+    <text x="16" y="90" font-size="11" fill="#334155">sample stack, ambient medium,</text>
+    <text x="16" y="106" font-size="11" fill="#334155">fitting hints — set in seed.yaml</text>
+  </g>
+
+  <!-- Sequence total -->
+  <g transform="translate(50, 670)">
+    <rect width="320" height="80" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="320" height="32" rx="10" fill="#7c3aed"/>
+    <rect y="22" width="320" height="10" fill="#7c3aed"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">SEQUENCE TOTAL</text>
+    <text x="16" y="54" font-size="11" fill="#334155">expected files per complete set</text>
+    <text x="16" y="70" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">state.sequence_total  (e.g. 3)</text>
+  </g>
+
+  <!-- Note: state.prompt unused -->
+  <g transform="translate(50, 770)">
+    <rect width="320" height="60" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="16" y="22" font-size="11" font-weight="700" fill="#475569">Note</text>
+    <text x="16" y="40" font-size="10" fill="#64748b">state.prompt (from seed.yaml) is</text>
+    <text x="16" y="54" font-size="10" fill="#64748b">stored but not read by plan-data</text>
+  </g>
+
+  <!-- arrows: inputs -> prompt -->
+  <g stroke="#94a3b8" stroke-width="1.5" fill="none">
+    <line x1="370" y1="200" x2="540" y2="295" marker-end="url(#arrow-light)"/>
+    <line x1="370" y1="335" x2="540" y2="345" marker-end="url(#arrow-light)"/>
+    <line x1="370" y1="460" x2="540" y2="395" marker-end="url(#arrow-light)"/>
+    <line x1="370" y1="590" x2="540" y2="445" marker-end="url(#arrow-light)"/>
+    <line x1="370" y1="710" x2="540" y2="495" marker-end="url(#arrow-light)"/>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- Column 2: PROMPT ASSEMBLY                                     -->
+  <!-- ============================================================ -->
+  <text x="550" y="125" font-size="14" font-weight="700" fill="#64748b" letter-spacing="2">PROMPT ASSEMBLED IN build_user_message()</text>
+
+  <!-- System message -->
+  <g transform="translate(550, 140)">
+    <rect width="480" height="140" rx="10" fill="#0f172a" stroke="#0f172a" stroke-width="2" filter="url(#shadow)"/>
+    <text x="16" y="26" font-size="13" font-weight="700" fill="#fbbf24">SystemMessage  (constant)</text>
+    <text x="16" y="50" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#e2e8f0">"You are the data-arrival planner</text>
+    <text x="16" y="66" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#e2e8f0"> for a neutron reflectometry</text>
+    <text x="16" y="82" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#e2e8f0"> analysis pipeline..."</text>
+    <text x="16" y="104" font-size="11" fill="#94a3b8">Rules: identify sequence_id, decide</text>
+    <text x="16" y="120" font-size="11" fill="#94a3b8">completeness, draft create-model fields</text>
+    <text x="16" y="134" font-size="11" fill="#94a3b8">only when context is rich enough.</text>
+  </g>
+
+  <!-- User message -->
+  <g transform="translate(550, 290)">
+    <rect width="480" height="540" rx="10" fill="#f8fafc" stroke="#334155" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="480" height="32" rx="10" fill="#334155"/>
+    <rect y="22" width="480" height="10" fill="#334155"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">HumanMessage  (assembled per call)</text>
+
+    <!-- Skills section -->
+    <g transform="translate(16, 50)">
+      <rect width="448" height="74" rx="6" fill="#eff6ff" stroke="#bfdbfe"/>
+      <text x="10" y="18" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#1e40af">=== ANALYZER SKILLS ===</text>
+      <text x="10" y="36" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#1e3a8a">--- skill: data-organization ---</text>
+      <text x="10" y="50" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#1e3a8a">--- skill: create-model ---</text>
+      <text x="10" y="64" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#1e3a8a">--- skill: plan-data ---  ...</text>
+    </g>
+
+    <!-- Header section -->
+    <g transform="translate(16, 134)">
+      <rect width="448" height="84" rx="6" fill="#f0fdf4" stroke="#bbf7d0"/>
+      <text x="10" y="18" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#166534">Data file path: .../partial.txt</text>
+      <text x="10" y="34" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#166534">Expected files per sequence: 3</text>
+      <text x="10" y="54" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#166534">--- Data file header ---</text>
+      <text x="10" y="70" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#15803d"># Meta: {"sequence_id": "Cu-D2O", ...}</text>
+    </g>
+
+    <!-- Siblings section -->
+    <g transform="translate(16, 228)">
+      <rect width="448" height="68" rx="6" fill="#fefce8" stroke="#fde68a"/>
+      <text x="10" y="18" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#854d0e">--- Sibling files ---</text>
+      <text x="10" y="34" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#a16207">REFL_226642_1_226642_partial.txt</text>
+      <text x="10" y="48" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#a16207">REFL_226642_2_226643_partial.txt</text>
+      <text x="10" y="62" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#a16207">REFL_226642_3_226644_partial.txt</text>
+    </g>
+
+    <!-- Context section -->
+    <g transform="translate(16, 306)">
+      <rect width="448" height="120" rx="6" fill="#fdf2f8" stroke="#fbcfe8"/>
+      <text x="10" y="18" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#9d174d">--- Scientist's context file ---</text>
+      <text x="10" y="38" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#be185d"># Sample 5</text>
+      <text x="10" y="54" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#be185d">Substrate: Si</text>
+      <text x="10" y="70" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#be185d">Layers: 3 nm Ti, 50 nm Cu</text>
+      <text x="10" y="86" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#be185d">Ambient: D2O</text>
+      <text x="10" y="102" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#be185d">Back reflection: true</text>
+    </g>
+
+    <!-- Trailer -->
+    <g transform="translate(16, 436)">
+      <rect width="448" height="46" rx="6" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="10" y="20" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#334155">"Produce the JSON object now.</text>
+      <text x="10" y="36" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#334155"> Reply with JSON only, no commentary."</text>
+    </g>
+
+    <text x="240" y="510" text-anchor="middle" font-size="10" fill="#64748b">parts joined with "\n" in build_user_message()</text>
+    <text x="240" y="526" text-anchor="middle" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#64748b">analyzer_tools/analysis/plan_data.py:228</text>
+  </g>
+
+  <!-- Arrow: prompt -> LLM -->
+  <g stroke="#334155" stroke-width="2" fill="none">
+    <path d="M 1030 560 L 1090 560" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- Column 3: LLM CALL + OUTPUT                                   -->
+  <!-- ============================================================ -->
+  <text x="1100" y="125" font-size="14" font-weight="700" fill="#64748b" letter-spacing="2">LLM CALL  &amp;  OUTPUT</text>
+
+  <!-- LLM box -->
+  <g transform="translate(1100, 140)">
+    <rect width="450" height="180" rx="12" fill="#fef3c7" stroke="#d97706" stroke-width="2.5" filter="url(#shadow)"/>
+    <rect width="450" height="36" rx="12" fill="#d97706"/>
+    <rect y="24" width="450" height="12" fill="#d97706"/>
+    <text x="20" y="24" font-size="14" font-weight="700" fill="#ffffff">call_planner_llm()</text>
+    <text x="20" y="64" font-size="12" fill="#1c1917">via <tspan font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-weight="700">aure.llm.get_llm()</tspan> → langchain</text>
+    <text x="20" y="88" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#44403c">provider:  state.llm.provider</text>
+    <text x="20" y="106" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#44403c">model:     state.llm.model</text>
+    <text x="20" y="124" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#44403c">base_url:  state.llm.base_url</text>
+    <text x="20" y="150" font-size="11" fill="#78716c">llm.invoke([SystemMessage,</text>
+    <text x="20" y="166" font-size="11" fill="#78716c">             HumanMessage])</text>
+  </g>
+
+  <!-- arrow LLM -> JSON -->
+  <line x1="1325" y1="320" x2="1325" y2="350" stroke="#334155" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+
+  <!-- Raw JSON reply -->
+  <g transform="translate(1100, 350)">
+    <rect width="450" height="270" rx="10" fill="#f8fafc" stroke="#334155" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="450" height="32" rx="10" fill="#334155"/>
+    <rect y="22" width="450" height="10" fill="#334155"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">JSON reply  (_extract_json)</text>
+    <g font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="11" fill="#0f172a">
+      <text x="16" y="54">{</text>
+      <text x="26" y="70" fill="#0369a1">"config": {</text>
+      <text x="36" y="86" fill="#16a34a">"describe": "Si / 3nm Ti / 50nm Cu / D2O",</text>
+      <text x="36" y="102" fill="#16a34a">"states": [ { "name": "...", "data":...} ],</text>
+      <text x="36" y="118" fill="#16a34a">"model_name": "Cu-D2O-226642",</text>
+      <text x="36" y="134" fill="#16a34a">"metadata": {</text>
+      <text x="46" y="150" fill="#16a34a">"perform_assembly": true,</text>
+      <text x="46" y="166" fill="#16a34a">"notes": "..."</text>
+      <text x="36" y="182" fill="#16a34a">}</text>
+      <text x="26" y="198" fill="#0369a1">},</text>
+      <text x="26" y="214" fill="#0369a1">"sequence_id": "Cu-D2O-226642",</text>
+      <text x="26" y="230" fill="#0369a1">"sequence_number": 3,</text>
+      <text x="26" y="246" fill="#0369a1">"sequence_complete": true,</text>
+      <text x="26" y="262" fill="#0369a1">"create_model_ready": true</text>
+    </g>
+  </g>
+
+  <!-- arrow JSON -> state update -->
+  <line x1="1325" y1="620" x2="1325" y2="650" stroke="#334155" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+
+  <!-- State update -->
+  <g transform="translate(1100, 650)">
+    <rect width="450" height="220" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="450" height="32" rx="10" fill="#059669"/>
+    <rect y="22" width="450" height="10" fill="#059669"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">writes  state.analysis  +  job_*.yaml</text>
+    <g font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="11" fill="#0f172a">
+      <text x="16" y="56">"analysis": {</text>
+      <text x="26" y="72" fill="#16a34a">"model_name": "Cu-D2O-226642",</text>
+      <text x="26" y="88" fill="#16a34a">"perform_assembly": true,</text>
+      <text x="26" y="104" fill="#16a34a">"metadata": {</text>
+      <text x="36" y="120" fill="#16a34a">"job_yaml": ".../plan/job_*.yaml",</text>
+      <text x="36" y="136" fill="#16a34a">"sequence_id": "Cu-D2O-226642",</text>
+      <text x="36" y="152" fill="#16a34a">"sequence_number": 3,</text>
+      <text x="36" y="168" fill="#16a34a">"sequence_complete": true,</text>
+      <text x="36" y="184" fill="#16a34a">"create_model_ready": true</text>
+      <text x="26" y="200" fill="#16a34a">}</text>
+      <text x="16" y="216">}</text>
+    </g>
+  </g>
+
+  <!-- Footer -->
+  <text x="800" y="910" text-anchor="middle" font-size="12" fill="#94a3b8">
+    source: analyzer_tools/analysis/plan_data.py · invoked by tools/simple_analyzer.xml (step 2a) in the NDIP pipeline
+  </text>
+</svg>

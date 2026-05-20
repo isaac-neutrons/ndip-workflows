@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 980" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <!-- Background -->
+  <rect width="1600" height="980" fill="#ffffff"/>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Title -->
+  <text x="800" y="48" text-anchor="middle" font-size="30" font-weight="700" fill="#0f172a">create-model · how the LLM drafts the refl1d model script</text>
+  <text x="800" y="78" text-anchor="middle" font-size="16" fill="#475569">Mode B: a <tspan font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">states:</tspan> YAML + REF_L headers → LLM JSON spec → rendered Python script</text>
+
+  <!-- Mode A side-note -->
+  <g transform="translate(1140, 95)">
+    <rect width="410" height="46" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="14" y="20" font-size="11" font-weight="700" fill="#475569">Mode A (not shown)</text>
+    <text x="14" y="36" font-size="11" fill="#64748b"><tspan font-family="ui-monospace, 'SF Mono', Menlo, monospace">create-model SOURCE.json</tspan> — no LLM, just convert</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- Column 1: INPUTS                                              -->
+  <!-- ============================================================ -->
+  <text x="50" y="165" font-size="14" font-weight="700" fill="#64748b" letter-spacing="2">INPUTS  (Mode B)</text>
+
+  <!-- Config YAML -->
+  <g transform="translate(50, 180)">
+    <rect width="320" height="240" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="320" height="32" rx="10" fill="#3b82f6"/>
+    <rect y="22" width="320" height="10" fill="#3b82f6"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">--config  model-creation.yaml</text>
+    <g font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="11" fill="#0f172a">
+      <text x="16" y="54" fill="#1e40af">describe:</text>
+      <text x="26" y="70" fill="#1e3a8a">"Si / 3nm Ti / 50nm Cu in D2O"</text>
+      <text x="16" y="90" fill="#1e40af">states:</text>
+      <text x="26" y="106">- name: "down"</text>
+      <text x="36" y="120">data: [REFL_226642_*_partial.txt]</text>
+      <text x="36" y="134">theta_offset: true</text>
+      <text x="36" y="148">sample_broadening: false</text>
+      <text x="26" y="164">- name: "up"</text>
+      <text x="36" y="178">data: [REFL_226650_*_partial.txt]</text>
+      <text x="36" y="192">extra_description: "spin up"</text>
+      <text x="16" y="212" fill="#1e40af">shared_parameters:</text>
+      <text x="26" y="226">[Cu.material.rho, Ti.thickness]</text>
+    </g>
+  </g>
+
+  <!-- REF_L data files (per-state) -->
+  <g transform="translate(50, 440)">
+    <rect width="320" height="160" rx="10" fill="#f0fdf4" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="320" height="32" rx="10" fill="#16a34a"/>
+    <rect y="22" width="320" height="10" fill="#16a34a"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">REF_L DATA FILES (per state)</text>
+    <text x="16" y="54" font-size="11" fill="#334155">resolved against config file's dir</text>
+    <text x="16" y="76" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">parse_refl_header()</text>
+    <text x="16" y="92" font-size="11" fill="#64748b">extracts per file:</text>
+    <text x="26" y="108" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#15803d">experiment, run, theta_offset</text>
+    <text x="26" y="122" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#15803d">runs[]: data_run, 2θ, θ</text>
+    <text x="16" y="142" font-size="11" fill="#64748b">classified into Case 1 / 2 / 3</text>
+  </g>
+
+  <!-- build_state_specs -->
+  <g transform="translate(50, 620)">
+    <rect width="320" height="130" rx="10" fill="#fefce8" stroke="#ca8a04" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="320" height="32" rx="10" fill="#ca8a04"/>
+    <rect y="22" width="320" height="10" fill="#ca8a04"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">build_state_specs()</text>
+    <text x="16" y="54" font-size="11" fill="#334155">validates each state:</text>
+    <text x="26" y="70" font-size="11" fill="#64748b">• all files same kind (combined</text>
+    <text x="26" y="84" font-size="11" fill="#64748b">  or partials of one set_id)</text>
+    <text x="26" y="98" font-size="11" fill="#64748b">• theta_offset only on partials</text>
+    <text x="26" y="112" font-size="11" fill="#64748b">• normalises params per state</text>
+  </g>
+
+  <!-- shared/unshared params hint -->
+  <g transform="translate(50, 770)">
+    <rect width="320" height="100" rx="10" fill="#fdf2f8" stroke="#db2777" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="320" height="32" rx="10" fill="#db2777"/>
+    <rect y="22" width="320" height="10" fill="#db2777"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">LAYER NAMES (constraint)</text>
+    <text x="16" y="54" font-size="11" fill="#334155">layer names referenced in</text>
+    <text x="16" y="70" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#0f172a">shared_parameters</text>
+    <text x="16" y="86" font-size="11" fill="#334155">→ passed as REQUIRED names so</text>
+    <text x="16" y="100" font-size="11" fill="#334155">  LLM uses 'Cu' not 'Copper'</text>
+  </g>
+
+  <!-- arrows: inputs -> prompt -->
+  <g stroke="#94a3b8" stroke-width="1.5" fill="none">
+    <line x1="370" y1="300" x2="540" y2="320" marker-end="url(#arrow-light)"/>
+    <line x1="370" y1="520" x2="540" y2="430" marker-end="url(#arrow-light)"/>
+    <line x1="370" y1="685" x2="540" y2="540" marker-end="url(#arrow-light)"/>
+    <line x1="370" y1="820" x2="540" y2="630" marker-end="url(#arrow-light)"/>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- Column 2: PROMPT ASSEMBLY                                     -->
+  <!-- ============================================================ -->
+  <text x="550" y="165" font-size="14" font-weight="700" fill="#64748b" letter-spacing="2">PROMPT ASSEMBLED IN build_states_llm_prompt()</text>
+
+  <!-- System message -->
+  <g transform="translate(550, 180)">
+    <rect width="480" height="160" rx="10" fill="#0f172a" stroke="#0f172a" stroke-width="2" filter="url(#shadow)"/>
+    <text x="16" y="26" font-size="13" font-weight="700" fill="#fbbf24">SystemMessage  (constant _SYSTEM_PROMPT)</text>
+    <text x="16" y="50" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#e2e8f0">"You are a neutron reflectometry expert</text>
+    <text x="16" y="66" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#e2e8f0"> helping to construct refl1d model specs..."</text>
+    <text x="16" y="88" font-size="11" fill="#94a3b8">Naming rules: ASCII identifiers ("Cu", "D2O")</text>
+    <text x="16" y="104" font-size="11" fill="#94a3b8">Domain rules: roughness ≥ 5 Å, SLD ± 2 × 10⁻⁶ Å⁻²,</text>
+    <text x="16" y="120" font-size="11" fill="#94a3b8">  never vary substrate SLD, min thickness 5 Å</text>
+    <text x="16" y="136" font-size="11" fill="#94a3b8">Common SLDs: Si 2.07, Cu 6.55, Ti −1.95, D2O 6.19...</text>
+    <text x="16" y="152" font-size="11" fill="#94a3b8">"Reply with a single JSON object — no prose."</text>
+  </g>
+
+  <!-- User message -->
+  <g transform="translate(550, 350)">
+    <rect width="480" height="540" rx="10" fill="#f8fafc" stroke="#334155" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="480" height="32" rx="10" fill="#334155"/>
+    <rect y="22" width="480" height="10" fill="#334155"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">HumanMessage  (assembled per call)</text>
+
+    <!-- Description -->
+    <g transform="translate(16, 50)">
+      <rect width="448" height="50" rx="6" fill="#eff6ff" stroke="#bfdbfe"/>
+      <text x="10" y="18" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#1e40af">Sample description (from the user):</text>
+      <text x="10" y="36" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#1e3a8a">Si / 3nm Ti / 50nm Cu in D2O</text>
+    </g>
+
+    <!-- States block -->
+    <g transform="translate(16, 110)">
+      <rect width="448" height="146" rx="6" fill="#f0fdf4" stroke="#bbf7d0"/>
+      <text x="10" y="18" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#166534">MULTI-STATE co-refinement of 2 state(s):</text>
+      <text x="10" y="38" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#15803d">- State 'down' (partial, 3 file(s)):</text>
+      <text x="10" y="52" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#15803d">    * REFL_226642_1_226642_partial.txt</text>
+      <text x="10" y="64" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#15803d">      [2θ=0.600°, 2θ=2.000°, 2θ=5.500°]</text>
+      <text x="10" y="76" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#15803d">    * REFL_226642_2_226643_partial.txt  ...</text>
+      <text x="10" y="96" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#15803d">- State 'up' (partial, 3 file(s)) — spin up:</text>
+      <text x="10" y="110" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#15803d">    * REFL_226650_1_..._partial.txt  [2θ=...]</text>
+      <text x="10" y="124" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#15803d">    * ...</text>
+      <text x="10" y="140" font-size="10" fill="#166534">→ "Produce ONE shared layer stack..."</text>
+    </g>
+
+    <!-- Required layer names -->
+    <g transform="translate(16, 266)">
+      <rect width="448" height="50" rx="6" fill="#fdf2f8" stroke="#fbcfe8"/>
+      <text x="10" y="18" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#9d174d">REQUIRED LAYER NAMES:</text>
+      <text x="10" y="36" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#be185d">'Cu', 'Ti'  (must appear, exact spelling)</text>
+    </g>
+
+    <!-- Shared instruction -->
+    <g transform="translate(16, 326)">
+      <rect width="448" height="46" rx="6" fill="#fefce8" stroke="#fde68a"/>
+      <text x="10" y="18" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#854d0e">"You may leave 'shared_parameters' empty —</text>
+      <text x="10" y="32" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#854d0e"> the caller fills it from YAML. You MAY</text>
+      <text x="10" y="44" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#854d0e"> suggest a default if the description is clear."</text>
+    </g>
+
+    <!-- JSON schema -->
+    <g transform="translate(16, 382)">
+      <rect width="448" height="140" rx="6" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="10" y="18" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#334155">Respond with a JSON object of shape:</text>
+      <text x="10" y="36" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#475569">{</text>
+      <text x="20" y="50" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#475569">"ambient":   {name, sld, sld_min/max, roughness...},</text>
+      <text x="20" y="64" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#475569">"substrate": {name, sld, roughness_min/max},</text>
+      <text x="20" y="78" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#475569">"layers": [ {name, sld, thickness, roughness,</text>
+      <text x="30" y="92" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#475569">              *_min, *_max} ],  // ambient → substrate</text>
+      <text x="20" y="106" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#475569">"intensity": {value, min, max},</text>
+      <text x="20" y="120" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#475569">"back_reflection": bool, "shared_parameters": [...]</text>
+      <text x="10" y="134" font-size="10" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#475569">}</text>
+    </g>
+  </g>
+
+  <text x="790" y="905" text-anchor="middle" font-size="10" fill="#64748b">model_generator.py:1374  build_states_llm_prompt()</text>
+
+  <!-- Arrow: prompt -> LLM -->
+  <g stroke="#334155" stroke-width="2" fill="none">
+    <path d="M 1030 620 L 1090 620" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- Column 3: LLM CALL + OUTPUT                                   -->
+  <!-- ============================================================ -->
+  <text x="1100" y="165" font-size="14" font-weight="700" fill="#64748b" letter-spacing="2">LLM CALL  &amp;  OUTPUT</text>
+
+  <!-- LLM box -->
+  <g transform="translate(1100, 180)">
+    <rect width="450" height="160" rx="12" fill="#fef3c7" stroke="#d97706" stroke-width="2.5" filter="url(#shadow)"/>
+    <rect width="450" height="36" rx="12" fill="#d97706"/>
+    <rect y="24" width="450" height="12" fill="#d97706"/>
+    <text x="20" y="24" font-size="14" font-weight="700" fill="#ffffff">call_llm_for_model_spec()</text>
+    <text x="20" y="64" font-size="12" fill="#1c1917">via <tspan font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-weight="700">aure.llm.get_llm(temperature=0.0)</tspan></text>
+    <text x="20" y="88" font-size="11" font-family="ui-monospace, 'SF Mono', Menlo, monospace" fill="#44403c">llm.invoke([system, user])</text>
+    <text x="20" y="112" font-size="11" fill="#78716c">retry-once policy: on parse / validation</text>
+    <text x="20" y="128" font-size="11" fill="#78716c">failure, re-prompt with the error message</text>
+    <text x="20" y="144" font-size="11" fill="#78716c">("Your previous reply could not be parsed...")</text>
+  </g>
+
+  <!-- arrow LLM -> JSON -->
+  <line x1="1325" y1="340" x2="1325" y2="370" stroke="#334155" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+
+  <!-- Raw JSON reply -->
+  <g transform="translate(1100, 370)">
+    <rect width="450" height="270" rx="10" fill="#f8fafc" stroke="#334155" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="450" height="32" rx="10" fill="#334155"/>
+    <rect y="22" width="450" height="10" fill="#334155"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">JSON reply → model_spec_from_dict()</text>
+    <g font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="11" fill="#0f172a">
+      <text x="16" y="54">{</text>
+      <text x="26" y="70" fill="#0369a1">"ambient":   {"name":"D2O", "sld":6.19, ...},</text>
+      <text x="26" y="86" fill="#0369a1">"substrate": {"name":"Si",  "sld":2.07, ...},</text>
+      <text x="26" y="102" fill="#0369a1">"layers": [</text>
+      <text x="36" y="118" fill="#16a34a">{"name":"Cu","thickness":500,"sld":6.55,...},</text>
+      <text x="36" y="134" fill="#16a34a">{"name":"Ti","thickness":30, "sld":-1.95,...}</text>
+      <text x="26" y="150" fill="#0369a1">],</text>
+      <text x="26" y="166" fill="#0369a1">"intensity": {"value":1.0, "min":0.95, "max":1.05},</text>
+      <text x="26" y="182" fill="#0369a1">"back_reflection": false,</text>
+      <text x="26" y="198" fill="#0369a1">"shared_parameters": []</text>
+      <text x="16" y="214">}</text>
+      <text x="16" y="240" fill="#94a3b8">_extract_json strips fences, validates,</text>
+      <text x="16" y="256" fill="#94a3b8">parses into ModelSpec (LayerSpec[] + bounds).</text>
+    </g>
+  </g>
+
+  <!-- arrow JSON -> render -->
+  <line x1="1325" y1="640" x2="1325" y2="670" stroke="#334155" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+
+  <!-- Script generation -->
+  <g transform="translate(1100, 670)">
+    <rect width="450" height="240" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="2" filter="url(#shadow)"/>
+    <rect width="450" height="32" rx="10" fill="#059669"/>
+    <rect y="22" width="450" height="10" fill="#059669"/>
+    <text x="16" y="22" font-size="13" font-weight="700" fill="#ffffff">writes  &lt;models_dir&gt;/&lt;name&gt;.py</text>
+    <text x="16" y="54" font-size="11" fill="#334155">generate_model_script_from_states():</text>
+    <g font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="11" fill="#0f172a">
+      <text x="16" y="76">def create_sample(back_reflection=False):</text>
+      <text x="26" y="92" fill="#16a34a">Cu = SLD("Cu", rho=6.55)</text>
+      <text x="26" y="108" fill="#16a34a">Ti = SLD("Ti", rho=-1.95)</text>
+      <text x="26" y="124" fill="#16a34a">D2O = SLD("D2O", rho=6.19)</text>
+      <text x="26" y="140" fill="#16a34a">sample = D2O | Cu(500,5) | Ti(30,5) | Si</text>
+      <text x="26" y="156" fill="#16a34a">Cu.thickness.range(450, 550)  # ...bounds</text>
+      <text x="26" y="172" fill="#16a34a">return sample</text>
+      <text x="16" y="194">def problem():</text>
+      <text x="26" y="210" fill="#16a34a">probes per state, tied parameters,</text>
+      <text x="26" y="226" fill="#16a34a">FitProblem(...)</text>
+    </g>
+  </g>
+
+  <!-- Footer -->
+  <text x="800" y="950" text-anchor="middle" font-size="12" fill="#94a3b8">
+    source: analyzer_tools/analysis/{create_model.py · model_generator.py}  · invoked by analyze-sample after plan-data
+  </text>
+</svg>
