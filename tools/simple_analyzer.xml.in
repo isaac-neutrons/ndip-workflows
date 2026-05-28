@@ -1,0 +1,106 @@
+<tool id="neutrons_isaac_simple_analyzer" name="Simple Analyzer" version="0.4.0" profile="22.01">
+    <description>Simple automated analysis tool for reflectivity data using LLM models.</description>
+    <creator>
+        <person name="Mat Doucet"/>
+        <organization url="https://www.ornl.gov/" name="ORNL"/>
+    </creator>
+    <requirements>
+        <container type="docker" shell="/bin/bash">ghcr.io/mdoucet/analyzer:sha-82baab4-slim</container>
+        <credentials name="llm_credentials" version="1.0"
+                     label="LLM Credentials"
+                     description="Credentials for accessing LLM API.">
+            <secret name="llm_api_key"
+                    inject_as_env="LLM_API_KEY"
+                    optional="false"
+                    label="LLM API Key"
+                    description="Your LLM API key."/>
+        </credentials>
+    </requirements>
+    <inputs>
+        <param name="config_json" type="data" format="json" label="JSON Configuration" optional="false"
+               help="A workflow-state JSON (from the reduction step). Provides the reflectivity file, context file, sequence total, and LLM endpoint."/>
+        <param name="llm_provider" type="text" value="local" label="LLM Provider" help="Fills state.inputs.operator.llm.provider only if the state leaves it blank."/>
+        <param name="llm_model" type="text" value="gpt-4" label="LLM Model" help="Fills state.inputs.operator.llm.model only if blank."/>
+        <param name="llm_base_url" type="text" value="https://aoai-eastus-bead.openai.azure.com/openai/v1/" label="LLM Endpoint" help="Fills state.inputs.operator.llm.base_url only if blank."/>
+    </inputs>
+
+    <configfiles>
+        <configfile name="ndip_shim">#raw
+@NDIP_SHIM@
+#end raw</configfile>
+    </configfiles>
+
+    <outputs>
+        <data format="txt" name="output" label="Analyzer Console Output"></data>
+        <data name="output_model" format="txt" label="Analyzer Model"></data>
+        <data format="json" name="updated_config" label="Updated JSON Configuration"></data>
+    </outputs>
+    <command detect_errors="exit_code"><![CDATA[
+        SHIM='$ndip_shim' &&
+        RUN="pixi run --as-is --manifest-path /app" &&
+
+        ## Fill any blank LLM fields in the state from the Galaxy inputs.
+        \$RUN python "\$SHIM" set-llm '$config_json' '$llm_provider' '$llm_model' '$llm_base_url' _state_in.json &&
+
+        ## Export the resolved LLM endpoint so both plan-data and analyze-sample
+        ## (which read LLM_* from the environment) pick it up.
+        export LLM_PROVIDER=`\$RUN python "\$SHIM" get _state_in.json inputs.operator.llm.provider` &&
+        export LLM_MODEL=`\$RUN python "\$SHIM" get _state_in.json inputs.operator.llm.model` &&
+        export LLM_BASE_URL=`\$RUN python "\$SHIM" get _state_in.json inputs.operator.llm.base_url` &&
+
+        OUTPUT_DIR=`\$RUN python "\$SHIM" get _state_in.json inputs.operator.output_directory` &&
+        mkdir -p "\$OUTPUT_DIR"/plan "\$OUTPUT_DIR"/models "\$OUTPUT_DIR"/results "\$OUTPUT_DIR"/reports &&
+        export ANALYZER_MODELS_DIR="\$OUTPUT_DIR"/models &&
+        export ANALYZER_RESULTS_DIR="\$OUTPUT_DIR"/results &&
+        export ANALYZER_REPORTS_DIR="\$OUTPUT_DIR"/reports &&
+        export ANALYZER_PARTIAL_DATA_DIR="\$OUTPUT_DIR" &&
+        export ANALYZER_COMBINED_DATA_DIR="\$OUTPUT_DIR" &&
+
+        echo "=== plan-data ===" | tee -a $output &&
+        PLAN_ARGS=`\$RUN python "\$SHIM" project-out plan _state_in.json` &&
+        eval \$RUN plan-data \$PLAN_ARGS --result-out _plan_result.json
+                > >(tee -a $output) 2> >(tee -a $output >&2);
+        PLAN_RC=\$? &&
+        \$RUN python "\$SHIM" merge-in plan _state_in.json _plan_result.json \$PLAN_RC _plan_state.json &&
+        if [ "\$PLAN_RC" -ne 0 ]; then
+            cp _plan_state.json '$updated_config';
+            echo "plan-data failed (exit \$PLAN_RC)" | tee -a $output >&2;
+            exit \$PLAN_RC;
+        fi &&
+
+        PERFORM_ASSEMBLY=`\$RUN python "\$SHIM" get _plan_state.json stages.analysis.params.perform_assembly` &&
+        echo "perform_assembly=\$PERFORM_ASSEMBLY" | tee -a $output &&
+
+        if [ "\$PERFORM_ASSEMBLY" = "True" ]; then
+            echo "=== analyze-sample (reduction gate disabled) ===" | tee -a $output;
+            ANALYZE_ARGS=`\$RUN python "\$SHIM" project-out analyze _plan_state.json`;
+            eval \$RUN analyze-sample --no-reduction-gate \$ANALYZE_ARGS --result-out _analyze_result.json
+                    > >(tee -a $output) 2> >(tee -a $output >&2);
+            ANALYZE_RC=\$?;
+            \$RUN python "\$SHIM" merge-in analyze _plan_state.json _analyze_result.json \$ANALYZE_RC '$updated_config';
+            echo "--- analyze-sample exit code: \$ANALYZE_RC ---" | tee -a $output;
+            if [ "\$ANALYZE_RC" -ne 0 ]; then
+                echo "ERROR: analyze-sample failed with exit code \$ANALYZE_RC" | tee -a $output >&2;
+            fi;
+        else
+            echo "analysis.perform_assembly is false; skipping analyze-sample." | tee -a $output;
+            cp _plan_state.json '$updated_config';
+        fi &&
+
+        echo "=== post-run inventory ===" | tee -a $output &&
+        (ls -la "\$OUTPUT_DIR"/results 2>&1 || true) | tee -a $output &&
+
+        PROBLEM_JSON=`\$RUN python "\$SHIM" get '$updated_config' stages.analysis.artifacts.problem_json` &&
+        JOB_YAML=`\$RUN python "\$SHIM" get '$updated_config' stages.analysis.artifacts.job_yaml` &&
+        if [ -n "\$PROBLEM_JSON" ] && [ -f "\$PROBLEM_JSON" ]; then
+            echo "Selected problem.json: \$PROBLEM_JSON" | tee -a $output;
+            cat "\$PROBLEM_JSON" > $output_model;
+        elif [ -n "\$JOB_YAML" ] && [ -f "\$JOB_YAML" ]; then
+            echo "WARNING: No problem.json; using job YAML as output_model." | tee -a $output >&2;
+            cp "\$JOB_YAML" $output_model;
+        else
+            echo "(no problem.json or job YAML; emitting empty output_model)" | tee -a $output >&2;
+            : > $output_model;
+        fi
+    ]]></command>
+</tool>

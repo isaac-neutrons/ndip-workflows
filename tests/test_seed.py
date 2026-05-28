@@ -74,32 +74,36 @@ def test_happy_path_json_seed(tmp_path):
     assert result.exit_code == 0, result.output
 
     state = json.loads(out_path.read_text())
-    assert state["schema_version"] == "1"
-    assert state["run"] == 226644
-    assert state["sequence_total"] == 3
-    assert state["prompt"] == "Cu/Ti/Si in D2O"
-    assert state["instrument"] == "REF_L"
-    assert state["ipts"] == "IPTS-36897"
+    assert state["schema_version"] == "2"
 
-    paths = state["paths"]
-    assert paths["event_file"] == str(layout["event"])
-    assert paths["input_file"] == paths["event_file"]
-    assert paths["raw_data"] == paths["event_file"]
-    assert paths["data_directory"] == str(layout["nexus_dir"])
-    assert paths["template_file"] == str(layout["template"])
-    assert paths["context_file"] == str(layout["context"])
+    wf = state["workflow"]
+    assert wf["run"] == 226644
+    assert wf["instrument"] == "REF_L"
+    assert wf["ipts"] == "IPTS-36897"
+
+    op = state["inputs"]["operator"]
+    assert op["sequence_total"] == 3
+    assert op["prompt"] == "Cu/Ti/Si in D2O"
+    assert op["template_file"] == str(layout["template"])
+    assert op["context_file"] == str(layout["context"])
     # output_directory was relative — should resolve to IPTS shared root
-    assert paths["output_directory"] == str(layout["shared"] / "isaac/reduction/sample5")
+    assert op["output_directory"] == str(layout["shared"] / "isaac/reduction/sample5")
+    assert op["llm"] == {
+        "provider": "local",
+        "model": "gpt-4",
+        "base_url": "https://aoai-eastus-bead.openai.azure.com/openai/v1/",
+    }
 
-    llm = state["llm"]
-    assert llm["provider"] == "local"
-    assert llm["model"] == "gpt-4"
-    assert llm["base_url"] == "https://aoai-eastus-bead.openai.azure.com/openai/v1/"
+    der = state["inputs"]["derived"]
+    assert der["nexus_file"] == str(layout["event"])
+    assert der["data_directory"] == str(layout["nexus_dir"])
+    assert der["ipts_shared_root"] == str(layout["shared"])
 
-    # Stage blocks initialized
-    assert state["reduction"] == {"success": None, "metadata": {}}
-    assert state["analysis"] == {"success": None, "metadata": {}}
-    assert state["assembly"] == {"success": None, "metadata": {}}
+    # Stage blocks initialised pending.
+    for stage in ("reduction", "analysis", "assembly"):
+        assert state["stages"][stage] == {
+            "status": "pending", "params": {}, "artifacts": {}, "info": {},
+        }
 
 
 def test_happy_path_yaml_seed(tmp_path):
@@ -118,8 +122,8 @@ def test_happy_path_yaml_seed(tmp_path):
     result = runner.invoke(main, [str(layout["event"]), str(seed_path), "-o", str(out_path)])
     assert result.exit_code == 0, result.output
     state = json.loads(out_path.read_text())
-    assert state["run"] == 226644
-    assert state["paths"]["template_file"] == str(layout["template"])
+    assert state["workflow"]["run"] == 226644
+    assert state["inputs"]["operator"]["template_file"] == str(layout["template"])
 
 
 def test_absolute_paths_in_seed_pass_through(tmp_path):
@@ -146,10 +150,11 @@ def test_absolute_paths_in_seed_pass_through(tmp_path):
     result = runner.invoke(main, [str(layout["event"]), str(seed_path), "-o", str(out_path)])
     assert result.exit_code == 0, result.output
     state = json.loads(out_path.read_text())
-    assert state["paths"]["template_file"] == str(abs_template)
-    assert state["paths"]["context_file"] == str(abs_context)
-    assert state["paths"]["output_directory"] == str(tmp_path / "outside/out")
-    assert state["sequence_total"] == 5
+    op = state["inputs"]["operator"]
+    assert op["template_file"] == str(abs_template)
+    assert op["context_file"] == str(abs_context)
+    assert op["output_directory"] == str(tmp_path / "outside/out")
+    assert op["sequence_total"] == 5
 
 
 def test_llm_overrides_from_seed(tmp_path):
@@ -170,7 +175,7 @@ def test_llm_overrides_from_seed(tmp_path):
     result = runner.invoke(main, [str(layout["event"]), str(seed_path), "-o", str(out_path)])
     assert result.exit_code == 0, result.output
     state = json.loads(out_path.read_text())
-    assert state["llm"] == {
+    assert state["inputs"]["operator"]["llm"] == {
         "provider": "openai",
         "model": "gpt-5",
         "base_url": "https://api.openai.com/v1/",
@@ -295,10 +300,10 @@ def test_no_ipts_segment_uses_fallback_shared_root(tmp_path):
     result = runner.invoke(main, [str(event), str(seed_path), "-o", str(out_path)])
     assert result.exit_code == 0, result.output
     state = json.loads(out_path.read_text())
-    assert "ipts" not in state  # nothing to attach
-    assert state["instrument"] == "REF_L"
+    assert "ipts" not in state["workflow"]  # nothing to attach
+    assert state["workflow"]["instrument"] == "REF_L"
     # output_directory resolved to ../shared/out
-    assert state["paths"]["output_directory"].endswith("/unstructured/shared/out")
+    assert state["inputs"]["operator"]["output_directory"].endswith("/unstructured/shared/out")
 
 
 def test_invalid_seed_file_errors(tmp_path):
@@ -343,5 +348,5 @@ def test_run_extracted_as_int(tmp_path):
     result = runner.invoke(main, [str(layout["event"]), str(seed_path), "-o", str(out_path)])
     assert result.exit_code == 0, result.output
     state = json.loads(out_path.read_text())
-    assert state["run"] == 12345
-    assert isinstance(state["run"], int)
+    assert state["workflow"]["run"] == 12345
+    assert isinstance(state["workflow"]["run"], int)

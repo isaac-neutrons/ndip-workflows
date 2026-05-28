@@ -1,5 +1,5 @@
 """
-Bootstrap a v1 workflow-state JSON from an event file path and a minimal seed.
+Bootstrap a workflow-state JSON from an event file path and a minimal seed.
 
 The seed contains only what cannot be derived from the event file path:
 
@@ -13,8 +13,8 @@ The seed contains only what cannot be derived from the event file path:
     prompt
     llm_provider, llm_model, llm_base_url
 
-Everything else (data_directory, run, ipts, instrument, event_file,
-input_file, raw_data) is parsed from the event file path. Relative seed
+Everything else (data_directory, run, ipts, instrument, nexus_file,
+ipts_shared_root) is parsed from the event file path. Relative seed
 paths resolve against the IPTS shared root, which is discovered by
 walking up from the event file's directory to the IPTS-named segment.
 """
@@ -117,7 +117,7 @@ def _resolve_path(value: str, root: str) -> str:
 
 
 def _build_state(event_file: str, seed: dict) -> dict:
-    """Validate inputs and build the v1 state document."""
+    """Validate inputs and build the state document."""
     missing = [k for k in _REQUIRED_KEYS if k not in seed]
     if missing:
         raise click.UsageError(
@@ -136,32 +136,28 @@ def _build_state(event_file: str, seed: dict) -> dict:
     if not Path(context_path).is_file():
         raise click.UsageError(f"context_file does not exist: {context_path}")
 
-    # Flat v0-shaped dict — migrate_v0_to_v1 nests it for us.
     flat: dict = {
+        # workflow identity
         "run": derived["run"],
+        "instrument": derived["instrument"],
+        "ipts": derived["ipts"],
+        # operator inputs
         "sequence_total": int(seed["sequence_total"]),
-        "data_directory": derived["data_directory"],
-        "event_file": derived["event_file"],
-        "input_file": derived["event_file"],
-        "raw_data": derived["event_file"],
         "template_file": template_path,
         "context_file": context_path,
         "output_directory": output_dir,
         "llm_provider": seed.get("llm_provider", _DEFAULT_LLM["provider"]),
         "llm_model": seed.get("llm_model", _DEFAULT_LLM["model"]),
         "llm_base_url": seed.get("llm_base_url", _DEFAULT_LLM["base_url"]),
+        # derived
+        "event_file": derived["event_file"],         # -> inputs.derived.nexus_file
+        "data_directory": derived["data_directory"],
+        "ipts_shared_root": root,
     }
     if seed.get("prompt"):
         flat["prompt"] = seed["prompt"]
 
-    state = build_state(flat)
-
-    # Identifiers — additive top-level fields, preserved through migration.
-    state["instrument"] = derived["instrument"]
-    if derived["ipts"]:
-        state["ipts"] = derived["ipts"]
-
-    return state
+    return build_state(flat)
 
 
 @click.command()
@@ -178,10 +174,10 @@ def _build_state(event_file: str, seed: dict) -> dict:
     type=click.Path(dir_okay=False),
     default="config.json",
     show_default=True,
-    help="Path to write the v1 state JSON.",
+    help="Path to write the state JSON.",
 )
 def main(event_file: str, seed_file: str, output: str) -> None:
-    """Bootstrap a v1 workflow-state JSON from an event file + minimal seed.
+    """Bootstrap a workflow-state JSON from an event file + minimal seed.
 
     \b
     EVENT_FILE — the run's NeXus file (e.g. REF_L_226644.nxs.h5).

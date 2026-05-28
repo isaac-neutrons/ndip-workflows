@@ -1,4 +1,6 @@
-"""Tests for the ndip_state workflow-state module."""
+"""Tests for ``ndip_state.state`` — the workflow-state document."""
+
+from __future__ import annotations
 
 import json
 
@@ -7,248 +9,149 @@ import pytest
 from ndip_state.state import (
     SCHEMA_VERSION,
     build_state,
-    emit_env,
     empty_state,
     load_state,
-    main,
+    merge_stage,
+    overall_status,
     record_error,
     save_state,
-    update_stage,
 )
 
 
-def test_empty_state_has_v1_skeleton():
+def test_schema_version_is_2():
+    assert SCHEMA_VERSION == "2"
+
+
+def test_empty_state_skeleton():
     s = empty_state()
-    assert s["schema_version"] == SCHEMA_VERSION
-    assert s["paths"] == {}
-    assert s["llm"] == {}
-    assert s["reduction"] == {"success": None, "metadata": {}}
-    assert s["analysis"] == {"success": None, "metadata": {}}
-    assert s["assembly"] == {"success": None, "metadata": {}}
+    assert s["schema_version"] == "2"
+    assert s["workflow"] == {}
+    assert s["inputs"] == {"operator": {}, "derived": {}}
+    assert set(s["stages"]) == {"reduction", "analysis", "assembly"}
+    assert s["stages"]["reduction"] == {
+        "status": "pending", "params": {}, "artifacts": {}, "info": {},
+    }
     assert s["errors"] == []
 
 
-def test_build_state_from_flat_input():
-    """build_state translates a flat operator-facing dict (yaml-parser /
-    seed-config shape) into the nested v1 form."""
-    flat = {
+def test_build_state_from_flat():
+    s = build_state({
         "run": 226644,
+        "instrument": "REF_L",
+        "ipts": "IPTS-36897",
         "sequence_total": 3,
-        "prompt": "Cu / Ti / Si in D2O",
-        "data_directory": "/SNS/REF_L/IPTS-36897/nexus",
-        "output_directory": "/SNS/REF_L/IPTS-36897/shared/isaac/reduction/sample5",
-        "template_file": "/SNS/template_down.xml",
-        "context_file": "/SNS/context.md",
-        "event_file": "/SNS/REF_L_226644.nxs.h5",
-        "input_file": "/SNS/REF_L_226644.nxs.h5",
-        "raw_data": "/SNS/REF_L_226644.nxs.h5",
-        "export_path": "/SNS/export.gz",
+        "prompt": "Cu on Ti on Si",
+        "template_file": "/t.xml",
+        "context_file": "/c.md",
+        "output_directory": "/out/sample5",
+        "event_file": "/nexus/REF_L_226644.nxs.h5",
+        "data_directory": "/nexus",
+        "ipts_shared_root": "/SNS/REF_L/IPTS-36897/shared",
         "llm_provider": "local",
         "llm_model": "gpt-4",
-        "llm_base_url": "https://example.com/openai/v1/",
-    }
-    s = build_state(flat)
-    assert s["schema_version"] == "1"
-    assert s["run"] == 226644
-    assert s["sequence_total"] == 3
-    assert s["prompt"] == "Cu / Ti / Si in D2O"
-    assert s["paths"]["event_file"] == "/SNS/REF_L_226644.nxs.h5"
-    assert s["paths"]["data_directory"] == "/SNS/REF_L/IPTS-36897/nexus"
-    assert s["paths"]["export_path"] == "/SNS/export.gz"
-    assert s["llm"]["provider"] == "local"
-    assert s["llm"]["model"] == "gpt-4"
-    assert s["llm"]["base_url"] == "https://example.com/openai/v1/"
+        "llm_base_url": "https://x/v1/",
+    })
+    assert s["workflow"] == {"run": 226644, "instrument": "REF_L", "ipts": "IPTS-36897"}
+    op = s["inputs"]["operator"]
+    assert op["sequence_total"] == 3
+    assert op["template_file"] == "/t.xml"
+    assert op["llm"] == {"provider": "local", "model": "gpt-4", "base_url": "https://x/v1/"}
+    der = s["inputs"]["derived"]
+    assert der["nexus_file"] == "/nexus/REF_L_226644.nxs.h5"
+    assert der["data_directory"] == "/nexus"
+    assert der["ipts_shared_root"] == "/SNS/REF_L/IPTS-36897/shared"
 
 
-def test_build_state_preserves_unknown_top_level_keys():
-    """Unknown keys ride along untouched so forward-compatible YAML doesn't
-    silently lose data."""
-    s = build_state({"some_future_key": {"x": 1}, "run": 42})
-    assert s["some_future_key"] == {"x": 1}
-    assert s["run"] == 42
+def test_build_state_drops_unknown_keys():
+    s = build_state({"run": 1, "future_field": "x"})
+    assert s["workflow"]["run"] == 1
+    assert "future_field" not in s
+    assert "future_field" not in s["workflow"]
+    assert "future_field" not in s["inputs"]["operator"]
 
 
-def test_load_state_v1_input(tmp_path):
-    p = tmp_path / "v1.json"
-    src = empty_state()
-    src["paths"]["event_file"] = "/b.h5"
-    src["reduction"]["success"] = True
-    save_state(src, str(p))
-    s = load_state(str(p))
-    assert s["paths"]["event_file"] == "/b.h5"
-    assert s["reduction"]["success"] is True
+def test_load_state_empty_path_returns_skeleton():
+    assert load_state("")["schema_version"] == "2"
+    assert load_state(None)["schema_version"] == "2"
 
 
-def test_load_state_missing_path_returns_empty():
-    assert load_state("")["schema_version"] == "1"
-    assert load_state(None)["schema_version"] == "1"
+def test_load_state_roundtrip(tmp_path):
+    s = build_state({"run": 42, "template_file": "/t.xml"})
+    p = tmp_path / "state.json"
+    save_state(s, str(p))
+    assert load_state(str(p)) == s
 
 
-def test_update_stage_shallow_merges_metadata():
+def test_load_state_rejects_wrong_schema_version(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text(json.dumps({"schema_version": "1", "paths": {}}))
+    with pytest.raises(ValueError):
+        load_state(str(p))
+
+
+def test_merge_stage_routes_four_fields():
     s = empty_state()
-    update_stage(s, "reduction", success=True, partial_file="/r.txt", metadata={"foo": 1})
-    update_stage(s, "reduction", metadata={"bar": 2})
-    assert s["reduction"]["success"] is True
-    assert s["reduction"]["partial_file"] == "/r.txt"
-    assert s["reduction"]["metadata"] == {"foo": 1, "bar": 2}
+    manifest = {
+        "tool": "simple-reduction",
+        "status": "ok",
+        "params": {"q_step": -0.02, "template_file": "/t.xml"},
+        "artifacts": {"partial_file": "/p.txt", "combined_file": "/c.txt"},
+        "info": {"first_run_of_set": 226642},
+    }
+    merge_stage(s, "reduction", manifest, exit_code=0)
+    red = s["stages"]["reduction"]
+    assert red["status"] == "ok"
+    assert red["params"]["q_step"] == -0.02
+    assert red["artifacts"]["partial_file"] == "/p.txt"
+    assert red["info"]["first_run_of_set"] == 226642
+    assert s["errors"] == []
+
+
+def test_merge_stage_dry_run_is_ok():
+    s = empty_state()
+    merge_stage(s, "analysis", {"status": "dry-run"}, exit_code=0)
+    assert s["stages"]["analysis"]["status"] == "ok"
+
+
+def test_merge_stage_skipped():
+    s = empty_state()
+    merge_stage(s, "analysis", {"status": "skipped"}, exit_code=0)
+    assert s["stages"]["analysis"]["status"] == "skipped"
+    assert s["errors"] == []
+
+
+def test_merge_stage_failure_records_error():
+    s = empty_state()
+    manifest = {
+        "status": "failed",
+        "messages": [{"level": "error", "text": "mantid blew up"}],
+    }
+    merge_stage(s, "reduction", manifest, exit_code=3)
+    assert s["stages"]["reduction"]["status"] == "failed"
+    assert s["errors"] == [
+        {"stage": "reduction", "message": "mantid blew up", "exit_code": 3}
+    ]
+
+
+def test_merge_stage_nonzero_exit_forces_failure():
+    s = empty_state()
+    merge_stage(s, "assembly", {"status": "ok"}, exit_code=1)
+    assert s["stages"]["assembly"]["status"] == "failed"
+    assert s["errors"][0]["stage"] == "assembly"
 
 
 def test_record_error_appends():
     s = empty_state()
-    record_error(s, "analysis", "oops", 1)
-    record_error(s, "assembly", "bad", 2)
-    assert len(s["errors"]) == 2
-    assert s["errors"][0]["stage"] == "analysis"
-    assert s["errors"][1]["exit_code"] == 2
+    record_error(s, "reduction", "boom", exit_code=7)
+    assert s["errors"] == [{"stage": "reduction", "message": "boom", "exit_code": 7}]
 
 
-def test_emit_env_writes_known_vars(tmp_path):
+def test_overall_status_rollup():
     s = empty_state()
-    s["paths"]["event_file"] = "/data/a.h5"
-    s["paths"]["output_directory"] = "/out"
-    s["llm"]["model"] = "gpt-4"
-    s["reduction"]["partial_file"] = "/r.txt"
-    s["analysis"]["success"] = True
-    s["analysis"]["problem_json"] = "/p.json"
-
-    env = tmp_path / "_env.sh"
-    emit_env(s, str(env))
-    txt = env.read_text()
-    assert "export EVENT_FILE=/data/a.h5" in txt
-    assert "export OUTPUT_DIR=/out" in txt
-    assert "export LLM_MODEL=gpt-4" in txt
-    assert "export REFLECTIVITY_FILE=/r.txt" in txt
-    assert "export FINAL_MODEL=/p.json" in txt
-    assert "export MODEL_AVAILABLE=1" in txt
-
-
-def test_emit_env_quotes_shell_metachars(tmp_path):
-    s = empty_state()
-    s["prompt"] = "back ; rm -rf /"
-    env = tmp_path / "_env.sh"
-    emit_env(s, str(env))
-    assert "'back ; rm -rf /'" in env.read_text()
-
-
-def test_emit_env_empty_state(tmp_path):
-    env = tmp_path / "_env.sh"
-    emit_env(empty_state(), str(env))
-    txt = env.read_text()
-    assert "export EVENT_FILE=''" in txt
-    assert "export MODEL_AVAILABLE=0" in txt
-
-
-def test_save_load_roundtrip_preserves_v1(tmp_path):
-    s = empty_state()
-    s["run"] = 1234
-    s["paths"]["event_file"] = "/x.h5"
-    p = tmp_path / "state.json"
-    save_state(s, str(p))
-    s2 = load_state(str(p))
-    assert s2["run"] == 1234
-    assert s2["paths"]["event_file"] == "/x.h5"
-    assert s2["schema_version"] == "1"
-
-
-def test_cli_parse_config_emits_env(tmp_path):
-    config = tmp_path / "config.json"
-    s = empty_state()
-    s["paths"]["event_file"] = "/e.h5"
-    s["paths"]["output_directory"] = "/out"
-    save_state(s, str(config))
-    env_out = tmp_path / "_env.sh"
-    main(["parse-config", str(config), str(env_out)])
-    txt = env_out.read_text()
-    assert "export EVENT_FILE=/e.h5" in txt
-    assert "export OUTPUT_DIR=/out" in txt
-
-
-def test_cli_parse_config_accepts_empty_path(tmp_path):
-    env_out = tmp_path / "_env.sh"
-    main(["parse-config", "", str(env_out)])
-    txt = env_out.read_text()
-    assert "export EVENT_FILE=''" in txt
-
-
-def test_cli_merge_reduction(tmp_path):
-    config = tmp_path / "config.json"
-    save_state(empty_state(), str(config))
-    summary = tmp_path / "summary.json"
-    summary.write_text(json.dumps({"partial_file": "/p.txt", "combined_file": "/c.txt"}))
-    out = tmp_path / "out.json"
-    main(["merge-reduction", str(config), str(summary), str(out)])
-    s = load_state(str(out))
-    assert s["reduction"]["success"] is True
-    assert s["reduction"]["partial_file"] == "/p.txt"
-    assert s["reduction"]["combined_file"] == "/c.txt"
-    assert "result_file" not in s["reduction"]
-
-
-def test_cli_merge_reduction_propagates_raw_data(tmp_path):
-    config = tmp_path / "config.json"
-    seed = empty_state()
-    seed["paths"]["event_file"] = "/event.h5"
-    save_state(seed, str(config))
-    summary = tmp_path / "summary.json"
-    summary.write_text(json.dumps({"partial_file": "/p.txt", "combined_file": "/c.txt"}))
-    out = tmp_path / "out.json"
-    main(["merge-reduction", str(config), str(summary), str(out)])
-    s = load_state(str(out))
-    assert s["paths"]["raw_data"] == "/event.h5"
-
-
-def test_cli_merge_analyzer_success(tmp_path):
-    config = tmp_path / "config.json"
-    save_state(empty_state(), str(config))
-    out = tmp_path / "out.json"
-    main([
-        "merge-analyzer",
-        str(config),
-        "0",
-        "Cu-D2O-226642",
-        "/results/Cu-D2O-226642/problem.json",
-        str(out),
-    ])
-    s = load_state(str(out))
-    assert s["analysis"]["success"] is True
-    assert s["analysis"]["model_name"] == "Cu-D2O-226642"
-    assert s["analysis"]["problem_json"] == "/results/Cu-D2O-226642/problem.json"
-    assert s["errors"] == []
-
-
-def test_cli_merge_analyzer_failure(tmp_path):
-    config = tmp_path / "config.json"
-    save_state(empty_state(), str(config))
-    out = tmp_path / "out.json"
-    main(["merge-analyzer", str(config), "1", "", "", str(out)])
-    s = load_state(str(out))
-    assert s["analysis"]["success"] is False
-    assert s["errors"][0]["stage"] == "analysis"
-    assert s["errors"][0]["exit_code"] == 1
-
-
-def test_cli_merge_assembler_success(tmp_path):
-    config = tmp_path / "config.json"
-    save_state(empty_state(), str(config))
-    out = tmp_path / "out.json"
-    main([
-        "merge-assembler",
-        str(config),
-        "0",
-        "/path/isaac_record_226644.json",
-        str(out),
-    ])
-    s = load_state(str(out))
-    assert s["assembly"]["success"] is True
-    assert s["assembly"]["isaac_record"] == "/path/isaac_record_226644.json"
-
-
-def test_cli_merge_assembler_failure(tmp_path):
-    config = tmp_path / "config.json"
-    save_state(empty_state(), str(config))
-    out = tmp_path / "out.json"
-    main(["merge-assembler", str(config), "2", "", str(out)])
-    s = load_state(str(out))
-    assert s["assembly"]["success"] is False
-    assert s["errors"][0]["stage"] == "assembly"
-    assert s["errors"][0]["exit_code"] == 2
+    assert overall_status(s) == "pending"
+    merge_stage(s, "reduction", {"status": "ok"})
+    merge_stage(s, "analysis", {"status": "ok"})
+    merge_stage(s, "assembly", {"status": "ok"})
+    assert overall_status(s) == "ok"
+    merge_stage(s, "assembly", {"status": "failed"}, exit_code=2)
+    assert overall_status(s) == "failed"

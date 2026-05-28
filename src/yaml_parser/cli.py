@@ -79,12 +79,8 @@ def main(input_file: str, config_dir: str) -> None:
     for i, item in enumerate(runs):
         identifier = str(item.get('run', item.get('tag', f"run_{i:03d}")))
 
-        # Merge common defaults; run-level keys take precedence
+        # Merge common defaults; run-level keys take precedence.
         config_data = {**common, **item}
-        event_file = config_data.get('event_file')
-        if event_file and 'input_file' not in config_data:
-            config_data['input_file'] = event_file
-
         state = build_state(config_data)
 
         config_file = os.path.join(config_dir, f"{identifier}.json")

@@ -7,32 +7,46 @@ ISAAC AI-Ready Records.
 
 ```
 seed_config | yaml_parser  →  reduction  →  simple_analyzer  →  data_assembler
-       v1 state seed             reduction.*       analysis.*           assembly.*
+       state seed             stages.reduction   stages.analysis    stages.assembly
 ```
 
-Every tool threads a single versioned JSON document — the **v1 workflow
-state** — through the chain. Each stage reads the state, runs its
-underlying CLI, and writes the same state back with its own stage block
-populated. The schema is defined in
-[`docs/state-schema.md`](docs/state-schema.md); an end-to-end walkthrough
-of a real run is in [`docs/state-handling.md`](docs/state-handling.md).
+A single JSON document — the workflow state — threads through every stage.
+Each stage records its outcome under `stages.<name>` (params, artifacts,
+info, status). The schema is defined in
+[`docs/state-schema.md`](docs/state-schema.md); an end-to-end walkthrough is
+in [`docs/state-handling.md`](docs/state-handling.md).
 
-The same CLIs that the Galaxy tools invoke also accept `--state-in PATH`
-/ `--state-out PATH` directly, so an agent or script can drive the
-pipeline without Galaxy — see
-[the "running without Galaxy" snippet](docs/state-handling.md#running-the-chain-without-galaxy).
+### Decoupled architecture
+
+This repo owns the schema. The pipeline tools are **schema-agnostic**: they
+take explicit CLI arguments and emit a neutral
+[`ndip-tool-result/1`](docs/tool-result-schema.md) manifest. Around each tool
+call the Galaxy wrapper runs two halves of an *adapter* (bundled in
+[`tools/ndip_shim.py`](tools/ndip_shim.py)):
+
+```
+state ──[project-out]──▶ tool CLI args ──▶ [foreign tool] ──▶ result.json
+                                                                  │
+state ◀──[merge-in (+ canonicalize)]──────────────────────────────┘
+```
+
+The foreign container images (analyzer, data-assembler, nr-isaac-format)
+never read or write the workflow state — Galaxy injects the shim at runtime.
+
+The same flow drives an agent without Galaxy via `ndip-run`; see the
+[Running without Galaxy](docs/state-handling.md#running-the-chain-without-galaxy)
+section.
 
 ## Entry points
 
-There are two ways to produce the initial v1 state. Both emit the same
-shape; pick whichever matches the situation.
+There are two ways to produce the initial seed. Both emit the same shape;
+pick whichever matches the situation.
 
 ### `seed-config` — single run, on-demand
 
-Give it the event-file path and a small JSON or YAML seed; it parses the
-path for `run`, `instrument`, `ipts`, and `data_directory`, resolves
-relative seed paths against the IPTS shared root, and emits a complete
-v1 state JSON.
+Give it the event-file path and a small JSON or YAML seed. It parses the
+path for `run`, `instrument`, `ipts`, and `data_directory`, resolves relative
+seed paths against the IPTS shared root, and emits a complete state JSON.
 
 ```yaml
 # seed.yaml
@@ -52,9 +66,10 @@ Galaxy wrapper: [`tools/seed_config.xml`](tools/seed_config.xml).
 ### `yaml-parser` — batched runs
 
 Hand it one YAML file describing many runs. Common defaults go under
-`common:` and per-run overrides go under `runs:` (or as a bare top-level
-list). It writes one v1 JSON per run into a Galaxy `Collection` that
-feeds the rest of the workflow.
+`common:` and per-run entries go under `runs:` (a bare top-level list is
+also accepted). It writes one JSON per run into a Galaxy `Collection` that
+feeds the rest of the workflow. A minimal demo input is at
+[`example/batch.yaml`](example/batch.yaml).
 
 Galaxy wrapper: [`tools/yaml_parser.xml`](tools/yaml_parser.xml).
 
@@ -68,18 +83,39 @@ Galaxy wrapper: [`tools/yaml_parser.xml`](tools/yaml_parser.xml).
 | [`simple_analyzer.xml`](tools/simple_analyzer.xml)         | `ghcr.io/mdoucet/analyzer:*-slim`                         | `plan-data` + `analyze-sample` (same)                  |
 | [`data_assembler.xml`](tools/data_assembler.xml)           | `ghcr.io/isaac-neutrons/data-assembler`                   | `data-assembler ingest` + `nr-isaac-format convert-ingest` |
 
+The three downstream tool XMLs are **generated** from `tools/*.xml.in`
+templates by [`tools/build_tool_xmls.py`](tools/build_tool_xmls.py), which
+inlines [`tools/ndip_shim.py`](tools/ndip_shim.py) at the `@NDIP_SHIM@`
+marker. Regenerate after editing either:
+
+```sh
+python tools/build_tool_xmls.py
+```
+
+`tests/test_ndip_shim.py` fails if the committed XMLs are stale, and asserts
+the shim behaves identically to the canonical `ndip_state` modules.
+
+> The bundled `workflows/Galaxy-Workflow-LR_Reduce_Batch.ga` was exported
+> against an earlier version of the tool inputs and needs to be re-exported
+> from Galaxy after rewiring it against the current XMLs.
+
 ## Layout
 
 ```
 src/
-  ndip_state/        — canonical state module (build_state, load_state, …)
+  ndip_state/        — schema, projection, adapters, canonicalize, ndip-run
   yaml_parser/       — CLIs: yaml-parser (batched), seed-config (single)
-tools/               — Galaxy tool XMLs
+tools/
+  ndip_shim.py       — self-contained orchestration bundle (inlined into XMLs)
+  build_tool_xmls.py — generator: ndip_shim + *.xml.in -> *.xml
+  *.xml.in / *.xml   — Galaxy tool templates and generated wrappers
 tests/               — pytest suite
 docs/
-  state-schema.md    — full schema reference
-  state-handling.md  — end-to-end walkthrough + agent-driven snippet
+  state-schema.md       — workflow-state shape (the orchestrator's contract)
+  tool-result-schema.md — neutral manifest the foreign tools emit
+  state-handling.md     — end-to-end walkthrough + agent-driven snippet
   experiment-workflows.md
+example/             — runnable seed.json + batch.yaml + sample partial files
 workflows/           — Galaxy workflow definitions (.ga)
 ```
 
@@ -90,11 +126,14 @@ pip install -e '.[test]'
 pytest
 ```
 
-The state module ([`src/ndip_state/state.py`](src/ndip_state/state.py)) is
-stdlib-only so it can be vendored verbatim into the analyzer and
-data-assembler images, where it backs each CLI's `--state-in /
---state-out` plumbing. The same source is also inlined into each tool
-XML as the `state_env` configfile — a slim helper that emits shell
-exports the tool's bash needs. The tests under
-[`tests/test_state_env_helper.py`](tests/test_state_env_helper.py) guard
-the inlined copies against drift across the three XMLs.
+The `ndip_state` package is stdlib-only by design — no dependencies, fast
+imports, and the same logic ports cleanly into the inlined `tools/ndip_shim.py`
+that ships into foreign containers via Galaxy's configfile mechanism.
+
+### Console scripts
+
+| Command       | Purpose |
+|---------------|---------|
+| `seed-config` | Single-run seed: event file + minimal seed YAML/JSON → state JSON. |
+| `yaml-parser` | Batch seed: one YAML of many runs → a directory of state JSONs. |
+| `ndip-run`    | Drive one pipeline stage (project-out → tool `--result-out` → merge-in). Agent-friendly. |

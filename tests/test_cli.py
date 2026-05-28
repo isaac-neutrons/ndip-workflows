@@ -46,13 +46,12 @@ def test_creates_config_files():
         assert os.path.exists(os.path.join(config_dir, "218386.json"))
         assert os.path.exists(os.path.join(config_dir, "218387.json"))
 
-        # Check config content (v1 schema: paths nested under "paths")
+        # Check config content (v2 schema: workflow / inputs / stages)
         with open(os.path.join(config_dir, "218386.json")) as f:
             config = json.load(f)
-        assert config["schema_version"] == "1"
-        assert config["run"] == 218386
-        assert config["paths"]["event_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
-        assert config["paths"]["input_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
+        assert config["schema_version"] == "2"
+        assert config["workflow"]["run"] == 218386
+        assert config["inputs"]["derived"]["nexus_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
 
 
 def test_matching_identifiers():
@@ -72,8 +71,8 @@ def test_matching_identifiers():
         assert config_ids == {"218386", "218387"}
 
 
-def test_event_file_included_as_input_file():
-    """Test that the event_file path is also available as input_file in the JSON."""
+def test_event_file_maps_to_nexus_file():
+    """The seed's ``event_file`` lands as ``inputs.derived.nexus_file`` (single name)."""
     runner = CliRunner()
     with tempfile.TemporaryDirectory() as tmpdir:
         yaml_file = os.path.join(tmpdir, "batch.yaml")
@@ -87,7 +86,8 @@ def test_event_file_included_as_input_file():
 
         with open(os.path.join(config_dir, "218387.json")) as f:
             config = json.load(f)
-        assert config["paths"]["input_file"] == config["paths"]["event_file"]
+        assert config["inputs"]["derived"]["nexus_file"] == \
+            "/SNS/REF_L/IPTS-34347/nexus/REF_L_218387.nxs.h5"
 
 
 def test_context_file_preserved_in_output():
@@ -106,7 +106,8 @@ def test_context_file_preserved_in_output():
         with open(os.path.join(config_dir, "218386.json")) as f:
             config = json.load(f)
 
-        assert config["paths"]["context_file"] == "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218386.txt"
+        assert config["inputs"]["operator"]["context_file"] == \
+            "/SNS/REF_L/IPTS-34347/shared/isaac/context/context_218386.txt"
 
 
 def test_invalid_yaml():
@@ -155,11 +156,12 @@ def test_common_params_merged_into_runs():
         with open(os.path.join(config_dir, "218386.json")) as f:
             config = json.load(f)
 
-        assert config["paths"]["data_directory"] == "/SNS/REF_L/IPTS-34347/nexus"
-        assert config["paths"]["template_file"] == "/SNS/REF_L/IPTS-34347/shared/autoreduce/template_down.xml"
-        assert config["prompt"] == "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate"
-        assert config["paths"]["event_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
-        assert config["paths"]["input_file"] == config["paths"]["event_file"]
+        op = config["inputs"]["operator"]
+        der = config["inputs"]["derived"]
+        assert der["data_directory"] == "/SNS/REF_L/IPTS-34347/nexus"
+        assert op["template_file"] == "/SNS/REF_L/IPTS-34347/shared/autoreduce/template_down.xml"
+        assert op["prompt"] == "45 to 60 nm Cu on 15 to 25 nm Ti on a silicon substrate"
+        assert der["nexus_file"] == "/SNS/REF_L/IPTS-34347/nexus/REF_L_218386.nxs.h5"
 
 
 def test_run_level_key_overrides_common():
@@ -177,7 +179,8 @@ def test_run_level_key_overrides_common():
             config = json.load(f)
 
         # run 218387 overrides template_file
-        assert config["paths"]["template_file"] == "/SNS/REF_L/IPTS-34347/shared/autoreduce/override_template.xml"
+        assert config["inputs"]["operator"]["template_file"] == \
+            "/SNS/REF_L/IPTS-34347/shared/autoreduce/override_template.xml"
 
 
 def test_common_format_missing_runs_key():

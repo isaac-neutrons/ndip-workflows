@@ -1,0 +1,63 @@
+<tool id="nexus_data_assembler" name="Data Assembler" version="0.4.0" profile="22.01">
+    <description>Assembles data from reflectivity, parquet files, and analyzer model into a single AI-ready output.</description>
+    <creator>
+        <person name="Mat Doucet"/>
+        <organization url="https://www.ornl.gov/" name="ORNL"/>
+    </creator>
+    <requirements>
+        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/data-assembler:sha-d27136e</container>
+    </requirements>
+    <inputs>
+        <param name="parquet" type="data" format="gz" label="Parquet files" optional="true" help="Optional. When omitted, the -p flag is dropped from the data-assembler call."></param>
+        <param name="config_json" type="data" format="json" label="JSON Configuration" optional="false" help="A workflow-state JSON. Provides the reduced reflectivity, fitted model, and raw NeXus paths." />
+    </inputs>
+
+    <configfiles>
+        <configfile name="ndip_shim">#raw
+@NDIP_SHIM@
+#end raw</configfile>
+    </configfiles>
+
+    <outputs>
+        <data format="txt" name="output" label="Data Assembler Console Output"></data>
+        <data format="gz" name="out_gz" label="Assembled Data"/>
+        <data format="json" name="updated_config" label="Updated JSON Configuration"></data>
+    </outputs>
+
+    <command detect_errors="exit_code"><![CDATA[
+        SHIM='$ndip_shim' &&
+        OUTPUT_DIR=`python "\$SHIM" get '$config_json' inputs.operator.output_directory` &&
+        ASSEMBLED_DIR="\$OUTPUT_DIR/assembled" &&
+        mkdir -p "\$ASSEMBLED_DIR" &&
+
+        #if $parquet
+            mkdir parquet &&
+            tar -xzvf $parquet -C parquet &&
+        #end if
+
+        echo "=== data-assembler ingest ===" | tee -a $output &&
+        INGEST_ARGS=`python "\$SHIM" project-out ingest '$config_json'` &&
+        eval data-assembler ingest \$INGEST_ARGS #if $parquet -p parquet #end if --result-out _ingest_result.json
+                > >(tee -a $output) 2> >(tee -a $output >&2);
+        INGEST_RC=\$? &&
+        python "\$SHIM" merge-in ingest '$config_json' _ingest_result.json \$INGEST_RC _ingest_state.json &&
+        if [ "\$INGEST_RC" -ne 0 ]; then
+            cp _ingest_state.json '$updated_config';
+            echo "data-assembler ingest failed (exit \$INGEST_RC)" | tee -a $output >&2;
+            exit \$INGEST_RC;
+        fi &&
+
+        echo "=== nr-isaac-format convert-ingest ===" | tee -a $output &&
+        CONVERT_ARGS=`python "\$SHIM" project-out convert _ingest_state.json` &&
+        eval nr-isaac-format convert-ingest \$CONVERT_ARGS --result-out _convert_result.json
+                > >(tee -a $output) 2> >(tee -a $output >&2);
+        CONVERT_RC=\$? &&
+        python "\$SHIM" merge-in convert _ingest_state.json _convert_result.json \$CONVERT_RC '$updated_config' &&
+        if [ "\$CONVERT_RC" -ne 0 ]; then
+            echo "nr-isaac-format convert-ingest failed (exit \$CONVERT_RC)" | tee -a $output >&2;
+            exit \$CONVERT_RC;
+        fi &&
+
+        tar -czvf $out_gz -C "\$ASSEMBLED_DIR" .
+    ]]></command>
+</tool>

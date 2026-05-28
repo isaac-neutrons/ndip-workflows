@@ -1,0 +1,56 @@
+<tool id="neutrons_isaac_reduction" name="Reduction" version="0.4.0" profile="22.01">
+    <description>Runs a Mantid reduction script on a NeXus file to produce a reflectivity curve.</description>
+
+    <creator>
+        <person name="Mat Doucet"/>
+        <organization url="https://www.ornl.gov/" name="ORNL"/>
+    </creator>
+
+    <requirements>
+        <container type="docker" shell="/bin/bash">ghcr.io/mdoucet/analyzer:sha-82baab4</container>
+    </requirements>
+
+    <inputs>
+        <param name="config_json" type="data" format="json" label="JSON Configuration" optional="false" help="A workflow-state JSON (from seed-config / yaml-parser). All paths come from the state." />
+    </inputs>
+
+    <configfiles>
+        <configfile name="ndip_shim">#raw
+@NDIP_SHIM@
+#end raw</configfile>
+    </configfiles>
+
+    <outputs>
+        <data format="txt" name="output" label="Reduction Console Output"></data>
+        <data format="txt" name="reflectivity" label="Reflectivity File"></data>
+        <data format="json" name="updated_config" label="Updated JSON Configuration"></data>
+    </outputs>
+
+    <command detect_errors="exit_code"><![CDATA[
+        SHIM='$ndip_shim' &&
+        RUN="pixi run --as-is --manifest-path /app" &&
+        OUTPUT_DIR=`\$RUN python "\$SHIM" get '$config_json' inputs.operator.output_directory` &&
+        DATA_DIR=`\$RUN python "\$SHIM" get '$config_json' inputs.derived.data_directory` &&
+        mkdir -p "\$OUTPUT_DIR" &&
+        export HOME=/root &&
+        if [ -n "\$DATA_DIR" ]; then ln -s "\$DATA_DIR" /app/data; fi &&
+
+        ARGS=`\$RUN python "\$SHIM" project-out reduction '$config_json'` &&
+        eval \$RUN simple-reduction \$ARGS --result-out _result.json
+                > >(tee -a $output) 2> >(tee -a $output >&2);
+        RC=\$? &&
+
+        \$RUN python "\$SHIM" merge-in reduction '$config_json' _result.json \$RC '$updated_config' &&
+        if [ "\$RC" -ne 0 ]; then
+            echo "simple-reduction failed (exit \$RC); see console output." | tee -a $output >&2;
+            exit \$RC;
+        fi &&
+
+        COMBINED_FILE=`\$RUN python "\$SHIM" get '$updated_config' stages.reduction.artifacts.combined_file` &&
+        if [ -z "\$COMBINED_FILE" ] || [ ! -f "\$COMBINED_FILE" ]; then
+            echo "reducer did not write a usable combined_file" | tee -a $output >&2;
+            exit 1;
+        fi &&
+        cat "\$COMBINED_FILE" > $reflectivity
+    ]]></command>
+</tool>
