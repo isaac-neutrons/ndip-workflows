@@ -38,10 +38,29 @@ def _outdir(state):
     return _get(state, "inputs", "operator", "output_directory")
 
 
-def _sub(state, name):
-    """A subdirectory of the operator output directory, e.g. <out>/plan."""
+def _rundir(state):
+    """Operator output dir namespaced by run number, e.g. <out>/226644.
+
+    Automated batch processing reuses one ``output_directory`` across many
+    runs. Per-run analysis/assembly artifacts (plan, results, reports,
+    assembled) hang off this run-specific subdirectory so a later run can't
+    overwrite an earlier one. The reduction stage writes to ``output_directory``
+    directly (its filenames already carry the run number), so it does not use
+    this. Falls back to ``output_directory`` when no run number is known.
+    """
     out = _outdir(state)
-    return os.path.join(out, name) if out else ""
+    if not out:
+        return ""
+    run = _get(state, "workflow", "run")
+    if run in ("", None):
+        return out
+    return os.path.join(out, str(run))
+
+
+def _sub(state, name):
+    """A per-run subdirectory of the output dir, e.g. <out>/226644/plan."""
+    run_dir = _rundir(state)
+    return os.path.join(run_dir, name) if run_dir else ""
 
 
 def _job_yaml(state):

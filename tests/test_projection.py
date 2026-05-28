@@ -77,6 +77,29 @@ def test_convert_projection():
     assert "--raw" in args  # nr-isaac-format uses --raw, not --nexus-file
 
 
+def test_per_run_subdirs_when_run_present():
+    """With a workflow.run, plan/results/reports/assembled nest under <out>/<run>
+    so concurrent runs sharing an output_directory don't overwrite each other.
+    The reduction --output-dir stays at the bare output_directory."""
+    s = _state()
+    s["workflow"] = {"run": 226644}
+    # analysis artifacts are stored absolute, so move them under the run dir too
+    s["stages"]["analysis"]["artifacts"] = {
+        "job_yaml": "/out/sample5/226644/plan/job.yaml",
+        "problem_json": "/out/sample5/226644/results/problem.json",
+    }
+    s["stages"]["assembly"]["artifacts"] = {"ingest_dir": "/out/sample5/226644/assembled"}
+
+    # reduction is unchanged — writes to the bare output_directory
+    assert project_out("reduction", s)[-1] == "/out/sample5"
+
+    assert "/out/sample5/226644/plan" in project_out("plan", s)
+    analyze = project_out("analyze", s)
+    assert "/out/sample5/226644/results" in analyze
+    assert "/out/sample5/226644/reports" in analyze
+    assert "/out/sample5/226644/assembled" in project_out("ingest", s)
+
+
 def test_missing_required_raises():
     s = _state()
     del s["inputs"]["derived"]["nexus_file"]

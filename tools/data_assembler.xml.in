@@ -26,8 +26,10 @@
 
     <command detect_errors="exit_code"><![CDATA[
         SHIM='$ndip_shim' &&
-        OUTPUT_DIR=`python "\$SHIM" get '$config_json' inputs.operator.output_directory` &&
-        ASSEMBLED_DIR="\$OUTPUT_DIR/assembled" &&
+        ## Per-run subdir (<output_directory>/<run>) keeps each run's assembled
+        ## output unique; matches project-out's _sub(s, "assembled").
+        RUN_DIR=`python "\$SHIM" rundir '$config_json'` &&
+        ASSEMBLED_DIR="\$RUN_DIR/assembled" &&
         mkdir -p "\$ASSEMBLED_DIR" &&
 
         #if $parquet

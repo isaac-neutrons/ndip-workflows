@@ -20,6 +20,7 @@ walking up from the event file's directory to the IPTS-named segment.
 """
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Optional
@@ -69,8 +70,14 @@ def _parse_event_file(event_file: str) -> dict:
     (absolutized), and ``ipts_shared_root``. ``ipts`` may be ``None`` when the
     path lacks an ``IPTS-*`` segment; in that case ``ipts_shared_root`` falls
     back to ``<event_file_dir>/../shared``.
+
+    The path is absolutized but symlinks are **not** resolved, so a canonical
+    ``/SNS/<INST>/<IPTS>/...`` path is preserved rather than collapsing to its
+    ``/gpfs/...`` realpath. This keeps the seeded state consistent with the
+    rest of the pipeline, whose ``canonicalize_paths`` step maps realpaths back
+    to this canonical form.
     """
-    path = Path(event_file).resolve()
+    path = Path(os.path.abspath(event_file))
     basename = path.name
 
     match = _EVENT_RE.match(basename)
