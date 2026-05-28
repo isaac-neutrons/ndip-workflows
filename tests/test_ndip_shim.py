@@ -167,6 +167,37 @@ def test_cli_get(tmp_path):
 
 # --- generated XMLs are fresh ----------------------------------------------
 
+def test_no_inline_cheetah_if_directives():
+    """Cheetah's ``#if`` consumes the rest of the line as its condition, so an
+    inline ``#if X foo #end if`` is parsed as an unterminated block. Every
+    ``#if`` must live on its own directive line, paired with a ``#end if`` line.
+    This is what planemo's Cheetah parser checks on lint."""
+    import re
+    for xml_path in sorted((ROOT / "tools").glob("*.xml")):
+        text = xml_path.read_text()
+        m = re.search(r"<command[^>]*><!\[CDATA\[(.*?)\]\]></command>", text, re.S)
+        if not m:
+            continue
+        for i, ln in enumerate(m.group(1).split("\n"), 1):
+            s = ln.strip()
+            if s.startswith("#if ") and "#end" in s[3:]:
+                raise AssertionError(
+                    f"{xml_path.name}:{i}: inline '#if … #end if' — Cheetah "
+                    f"will not parse this. Use block form on separate lines."
+                )
+
+
+def test_generated_xmls_are_well_formed_xml():
+    """Galaxy lint parses the XML; any stray '<' or '&' in the inlined shim
+    breaks element nesting. ``#raw``/``#end raw`` is a Cheetah directive — it
+    does NOT escape XML — so the shim must contain no XML-hostile literals."""
+    import xml.etree.ElementTree as ET
+    for xml_path in sorted((ROOT / "tools").glob("*.xml")):
+        # Will raise ParseError if any tag is unbalanced or any '<' appears
+        # outside markup.
+        ET.parse(xml_path)
+
+
 def test_generated_xmls_are_up_to_date():
     gen = _load(ROOT / "tools" / "build_tool_xmls.py", "_ndip_build_tool_xmls")
     shim_text = (ROOT / "tools" / "ndip_shim.py").read_text().rstrip("\n")

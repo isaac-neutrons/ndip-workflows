@@ -5,7 +5,7 @@
         <organization url="https://www.ornl.gov/" name="ORNL"/>
     </creator>
     <requirements>
-        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/data-assembler:sha-d27136e</container>
+        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/data-assembler:sha-5606004</container>
     </requirements>
     <inputs>
         <param name="parquet" type="data" format="gz" label="Parquet files" optional="true" help="Optional. When omitted, the -p flag is dropped from the data-assembler call."></param>
@@ -37,7 +37,11 @@
 
         echo "=== data-assembler ingest ===" | tee -a $output &&
         INGEST_ARGS=`python "\$SHIM" project-out ingest '$config_json'` &&
-        eval data-assembler ingest \$INGEST_ARGS #if $parquet -p parquet #end if --result-out _ingest_result.json
+        eval data-assembler ingest \$INGEST_ARGS
+                #if $parquet
+                    -p parquet
+                #end if
+                --result-out _ingest_result.json
                 > >(tee -a $output) 2> >(tee -a $output >&2);
         INGEST_RC=\$? &&
         python "\$SHIM" merge-in ingest '$config_json' _ingest_result.json \$INGEST_RC _ingest_state.json &&

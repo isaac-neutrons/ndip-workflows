@@ -5,7 +5,7 @@
         <organization url="https://www.ornl.gov/" name="ORNL"/>
     </creator>
     <requirements>
-        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/data-assembler:sha-d27136e</container>
+        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/data-assembler:sha-5606004</container>
     </requirements>
     <inputs>
         <param name="parquet" type="data" format="gz" label="Parquet files" optional="true" help="Optional. When omitted, the -p flag is dropped from the data-assembler call."></param>
@@ -28,8 +28,8 @@ small bit of NDIP-schema logic the tool *wrapper* needs at runtime:
   - ``set-llm STATE PROVIDER MODEL BASE_URL OUT`` — fill blank
         ``inputs.operator.llm.*`` fields without overriding populated ones.
 
-Galaxy injects this file into the tool container via a ``<configfile>``, so the
-foreign image needs only ``python`` — not ``ndip_state``. It is **stdlib-only**
+Galaxy injects this file into the tool container via a configfile element, so
+the foreign image needs only ``python`` — not ``ndip_state``. It is **stdlib-only**
 and a faithful bundle of ``src/ndip_state/{state,projection,canonicalize,adapters}.py``;
 ``tests/test_ndip_shim.py`` asserts it stays in agreement with those modules.
 
@@ -461,7 +461,11 @@ if __name__ == "__main__":
 
         echo "=== data-assembler ingest ===" | tee -a $output &&
         INGEST_ARGS=`python "\$SHIM" project-out ingest '$config_json'` &&
-        eval data-assembler ingest \$INGEST_ARGS #if $parquet -p parquet #end if --result-out _ingest_result.json
+        eval data-assembler ingest \$INGEST_ARGS
+                #if $parquet
+                    -p parquet
+                #end if
+                --result-out _ingest_result.json
                 > >(tee -a $output) 2> >(tee -a $output >&2);
         INGEST_RC=\$? &&
         python "\$SHIM" merge-in ingest '$config_json' _ingest_result.json \$INGEST_RC _ingest_state.json &&
@@ -482,6 +486,7 @@ if __name__ == "__main__":
             exit \$CONVERT_RC;
         fi &&
 
+        cp '$updated_config' "\$ASSEMBLED_DIR/results.json" &&
         tar -czvf $out_gz -C "\$ASSEMBLED_DIR" .
     ]]></command>
 </tool>
