@@ -1,7 +1,7 @@
 """
-Bootstrap a workflow-state JSON from an event file path and a minimal seed.
+Bootstrap a workflow-state JSON from an event NeXus file and a minimal seed.
 
-The seed contains only what cannot be derived from the event file path:
+The seed contains only what cannot be read from the event file:
 
   Required:
     template_file:    relative-to-IPTS-shared (or absolute) Mantid template
@@ -13,17 +13,18 @@ The seed contains only what cannot be derived from the event file path:
     prompt
     llm_provider, llm_model, llm_base_url
 
-Everything else (data_directory, run, ipts, instrument, nexus_file,
-ipts_shared_root) is parsed from the event file path. Relative seed
-paths resolve against the IPTS shared root, which is discovered by
-walking up from the event file's directory to the IPTS-named segment.
+Run identity (run, instrument, ipts) is read from the **contents** of the
+event NeXus file with h5py, not from its filename: Galaxy stages uploaded
+datasets under opaque names like ``dataset_<uuid>.dat``, so the basename
+cannot be trusted. From that metadata the canonical analysis paths
+(nexus_file, data_directory, ipts_shared_root) are reconstructed under the
+facility root (``/SNS`` by default), and relative seed paths resolve against
+the reconstructed IPTS shared root.
 """
 
 import json
 import os
-import re
 from pathlib import Path
-from typing import Optional
 
 import click
 import yaml
@@ -39,10 +40,9 @@ _DEFAULT_LLM = {
     "base_url": "https://aoai-eastus-bead.openai.azure.com/openai/v1/",
 }
 
-# Match e.g. REF_L_226644.nxs.h5 — instrument is an upper-case token with
-# optional underscore, run is digits.
-_EVENT_RE = re.compile(r"^(?P<instrument>[A-Z][A-Z_]+)_(?P<run>\d+)\.nxs\.h5$")
-_IPTS_RE = re.compile(r"^IPTS-\d+$")
+# Mounted facility data root. The canonical run paths are reconstructed as
+# <root>/<INSTRUMENT>/<IPTS>/{nexus,shared}/...; override with --facility-root.
+DEFAULT_FACILITY_ROOT = "/SNS"
 
 
 def _load_seed(seed_path: str) -> dict:
@@ -62,56 +62,93 @@ def _load_seed(seed_path: str) -> dict:
     return data
 
 
-def _parse_event_file(event_file: str) -> dict:
-    """Extract identifiers and paths from an instrument NeXus filename.
+def _read_nexus_metadata(event_file: str) -> dict:
+    """Read ``run``, ``instrument`` and ``ipts`` from a NeXus file's contents.
 
-    Expects ``/<...>/<IPTS-NNNNN>/<...>/<INSTRUMENT>_<RUN>.nxs.h5``. Returns
-    ``run``, ``instrument``, ``ipts``, ``data_directory``, ``event_file``
-    (absolutized), and ``ipts_shared_root``. ``ipts`` may be ``None`` when the
-    path lacks an ``IPTS-*`` segment; in that case ``ipts_shared_root`` falls
-    back to ``<event_file_dir>/../shared``.
-
-    The path is absolutized but symlinks are **not** resolved, so a canonical
-    ``/SNS/<INST>/<IPTS>/...`` path is preserved rather than collapsing to its
-    ``/gpfs/...`` realpath. This keeps the seeded state consistent with the
-    rest of the pipeline, whose ``canonicalize_paths`` step maps realpaths back
-    to this canonical form.
+    Reads ``/entry/run_number``, ``/entry/instrument/name`` and
+    ``/entry/experiment_identifier`` with h5py. We deliberately ignore the
+    filename: Galaxy stages uploaded datasets as ``dataset_<uuid>.dat``, so the
+    basename carries no run identity.
     """
-    path = Path(os.path.abspath(event_file))
-    basename = path.name
+    import h5py
+    import numpy as np
 
-    match = _EVENT_RE.match(basename)
-    if not match:
+    def _value(group, name):
+        ds = group.get(name)
+        if ds is None:
+            return None
+        val = ds[()]
+        if isinstance(val, np.ndarray):
+            if val.size == 0:
+                return None
+            val = val.reshape(-1)[0]
+        if isinstance(val, (bytes, bytearray)):  # np.bytes_ is a bytes subclass
+            return val.decode("utf-8", "replace").strip()
+        return str(val).strip()
+
+    try:
+        h5 = h5py.File(event_file, "r")
+    except OSError as exc:
         raise click.UsageError(
-            f"event_file basename does not match '<INSTRUMENT>_<RUN>.nxs.h5': {basename}"
+            f"could not open event_file as a NeXus/HDF5 file: {event_file} ({exc})"
+        ) from exc
+
+    with h5:
+        entry = None
+        for key in h5:
+            obj = h5[key]
+            if not isinstance(obj, h5py.Group):
+                continue
+            nxclass = obj.attrs.get("NX_class")
+            if isinstance(nxclass, (bytes, bytearray)):
+                nxclass = nxclass.decode("utf-8", "replace")
+            if nxclass == "NXentry" or key == "entry":
+                entry = obj
+                break
+        if entry is None:
+            raise click.UsageError(f"no NXentry group found in {event_file}")
+
+        run = _value(entry, "run_number") or _value(entry, "entry_identifier")
+        instrument = None
+        inst = entry.get("instrument")
+        if isinstance(inst, h5py.Group):
+            instrument = _value(inst, "name")
+            if not instrument and "name" in inst:
+                short = inst["name"].attrs.get("short_name")
+                if isinstance(short, (bytes, bytearray)):
+                    instrument = short.decode("utf-8", "replace").strip()
+        ipts = _value(entry, "experiment_identifier")
+
+    if not run or not str(run).isdigit():
+        raise click.UsageError(
+            f"could not read a numeric /entry/run_number from {event_file}"
         )
+    if not instrument:
+        raise click.UsageError(
+            f"could not read /entry/instrument/name from {event_file}"
+        )
+    if not ipts:
+        raise click.UsageError(
+            f"could not read /entry/experiment_identifier (IPTS) from {event_file}"
+        )
+    return {"run": int(run), "instrument": instrument, "ipts": ipts}
 
-    run = int(match.group("run"))
-    instrument = match.group("instrument")
-    data_directory = str(path.parent)
 
-    ipts = None
-    ipts_root: Optional[Path] = None
-    for parent in path.parents:
-        if _IPTS_RE.match(parent.name):
-            ipts = parent.name
-            ipts_root = parent
-            break
+def _reconstruct_paths(meta: dict, facility_root: str) -> dict:
+    """Build the canonical analysis paths from run metadata + facility root.
 
-    if ipts_root is not None:
-        ipts_shared_root = str(ipts_root / "shared")
-    else:
-        # No IPTS segment found — fall back to a sibling 'shared' next to the
-        # data directory. Useful for test fixtures and unusual layouts.
-        ipts_shared_root = str(path.parent.parent / "shared")
-
+    Standard layout: ``<root>/<INSTRUMENT>/<IPTS>/nexus/<INSTRUMENT>_<RUN>.nxs.h5``
+    for the event file, with the ``shared`` tree alongside ``nexus``.
+    """
+    run, instrument, ipts = meta["run"], meta["instrument"], meta["ipts"]
+    ipts_root = os.path.join(facility_root, instrument, ipts)
     return {
         "run": run,
         "instrument": instrument,
         "ipts": ipts,
-        "data_directory": data_directory,
-        "event_file": str(path),
-        "ipts_shared_root": ipts_shared_root,
+        "data_directory": os.path.join(ipts_root, "nexus"),
+        "event_file": os.path.join(ipts_root, "nexus", f"{instrument}_{run}.nxs.h5"),
+        "ipts_shared_root": os.path.join(ipts_root, "shared"),
     }
 
 
@@ -123,7 +160,7 @@ def _resolve_path(value: str, root: str) -> str:
     return str(Path(root) / value)
 
 
-def _build_state(event_file: str, seed: dict) -> dict:
+def _build_state(event_file: str, seed: dict, facility_root: str) -> dict:
     """Validate inputs and build the state document."""
     missing = [k for k in _REQUIRED_KEYS if k not in seed]
     if missing:
@@ -131,7 +168,7 @@ def _build_state(event_file: str, seed: dict) -> dict:
             f"seed is missing required key(s): {', '.join(missing)}"
         )
 
-    derived = _parse_event_file(event_file)
+    derived = _reconstruct_paths(_read_nexus_metadata(event_file), facility_root)
     root = derived["ipts_shared_root"]
 
     template_path = _resolve_path(str(seed["template_file"]), root)
@@ -183,13 +220,20 @@ def _build_state(event_file: str, seed: dict) -> dict:
     show_default=True,
     help="Path to write the state JSON.",
 )
-def main(event_file: str, seed_file: str, output: str) -> None:
+@click.option(
+    "--facility-root",
+    default=DEFAULT_FACILITY_ROOT,
+    show_default=True,
+    help="Mounted facility data root; canonical paths are reconstructed as "
+         "<root>/<INSTRUMENT>/<IPTS>/{nexus,shared}/...",
+)
+def main(event_file: str, seed_file: str, output: str, facility_root: str) -> None:
     """Bootstrap a workflow-state JSON from an event file + minimal seed.
 
     \b
-    EVENT_FILE — the run's NeXus file (e.g. REF_L_226644.nxs.h5).
-                 Path is parsed (not read) to derive run, instrument,
-                 IPTS, and data_directory.
+    EVENT_FILE — the run's NeXus file. Its run, instrument, and IPTS are
+                 read from the file contents with h5py (the filename is
+                 ignored — Galaxy renames uploads to dataset_<uuid>.dat).
 
     \b
     SEED_FILE  — JSON or YAML with the fields this tool can't derive.
@@ -198,17 +242,18 @@ def main(event_file: str, seed_file: str, output: str) -> None:
                  Optional:  prompt, llm_provider, llm_model, llm_base_url.
 
     \b
-    Relative paths in the seed resolve against the IPTS shared root
-    (e.g. /SNS/REF_L/IPTS-36897/shared) discovered from the event file
-    path. Absolute paths pass through unchanged.
+    Canonical paths (nexus_file, data_directory, ipts_shared_root) are
+    reconstructed under --facility-root (default /SNS) as
+    <root>/<INSTRUMENT>/<IPTS>/.... Relative seed paths resolve against the
+    reconstructed IPTS shared root; absolute paths pass through unchanged.
 
     Examples::
 
-        seed-config /SNS/REF_L/IPTS-36897/nexus/REF_L_226644.nxs.h5 seed.json
-        seed-config event.h5 seed.yaml -o state_226644.json
+        seed-config REF_L_226644.nxs.h5 seed.json
+        seed-config dataset_ea91e004.dat seed.yaml -o state_226644.json
     """
     seed = _load_seed(seed_file)
-    state = _build_state(event_file, seed)
+    state = _build_state(event_file, seed, facility_root)
     with open(output, "w") as f:
         json.dump(state, f, indent=2)
     click.echo(f"Wrote {output}")
