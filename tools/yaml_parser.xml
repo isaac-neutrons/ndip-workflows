@@ -2,7 +2,7 @@
     <description>Parses a master YAML file into a collection of individual JSON configs</description>
     
     <requirements>
-        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/ndip-workflows:0b9cecde11aa740736e7da96890df9d0272bf5e8</container>
+        <container type="docker" shell="/bin/bash">ghcr.io/isaac-neutrons/ndip-workflows:14299e824ac1f9ae2bcbbd05fe7e526d85bd35cf</container>
     </requirements>
 
     <command detect_errors="exit_code"><![CDATA[
