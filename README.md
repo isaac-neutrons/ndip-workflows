@@ -44,8 +44,10 @@ pick whichever matches the situation.
 
 ### `seed-config` — single run, on-demand
 
-Give it the event-file path and a small JSON or YAML seed. It parses the
-path for `run`, `instrument`, `ipts`, and `data_directory`, resolves relative
+Give it the event NeXus file and a small JSON or YAML seed. It reads `run`,
+`instrument`, and `ipts` from the file *contents* with h5py (the filename is
+ignored — Galaxy renames uploads to `dataset_<uuid>.dat`), reconstructs the
+canonical paths under `--facility-root` (default `/SNS`), resolves relative
 seed paths against the IPTS shared root, and emits a complete state JSON.
 
 ```yaml
