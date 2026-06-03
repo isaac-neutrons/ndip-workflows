@@ -5,7 +5,7 @@
         <organization url="https://www.ornl.gov/" name="ORNL"/>
     </creator>
     <requirements>
-        <container type="docker" shell="/bin/bash">ghcr.io/mdoucet/analyzer:sha-52a37e1-slim</container>
+        <container type="docker" shell="/bin/bash">ghcr.io/neutrons-ai/nr-analyzer:sha-57bd7fd-slim</container>
         <credentials name="llm_credentials" version="1.0"
                      label="LLM Credentials"
                      description="Credentials for accessing LLM API.">
@@ -92,16 +92,17 @@
         echo "=== post-run inventory ===" | tee -a $output &&
         (ls -la "\$RUN_DIR"/results 2>&1 || true) | tee -a $output &&
 
+        ## The fit output (problem.json) only exists when analyze-sample ran. When
+        ## the sequence is incomplete we deliberately skip the fit, so its absence is
+        ## expected, not a failure -- emit an empty model rather than chasing the fit
+        ## output (or copying the job YAML across the /SNS mount, whose restrictive
+        ## perms can make the cp fail and sink the whole tool).
         PROBLEM_JSON=`python "\$SHIM" get '$updated_config' stages.analysis.artifacts.problem_json` &&
-        JOB_YAML=`python "\$SHIM" get '$updated_config' stages.analysis.artifacts.job_yaml` &&
         if [ -n "\$PROBLEM_JSON" ] && [ -f "\$PROBLEM_JSON" ]; then
             echo "Selected problem.json: \$PROBLEM_JSON" | tee -a $output;
             cat "\$PROBLEM_JSON" > $output_model;
-        elif [ -n "\$JOB_YAML" ] && [ -f "\$JOB_YAML" ]; then
-            echo "WARNING: No problem.json; using job YAML as output_model." | tee -a $output >&2;
-            cp "\$JOB_YAML" $output_model;
         else
-            echo "(no problem.json or job YAML; emitting empty output_model)" | tee -a $output >&2;
+            echo "(no problem.json emitted; writing empty output_model)" | tee -a $output >&2;
             : > $output_model;
         fi
     ]]></command>
