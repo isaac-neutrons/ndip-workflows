@@ -208,3 +208,5 @@ __marimo__/
 
 # yaml-parser default output directory
 config_outputs/
+.claude/settings.json
+.DS_Store

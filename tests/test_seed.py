@@ -378,3 +378,206 @@ def test_run_extracted_as_int(tmp_path):
     state = json.loads(out_path.read_text())
     assert state["workflow"]["run"] == 12345
     assert isinstance(state["workflow"]["run"], int)
+
+
+# --------------------------------------------------------------------------
+# --from-reduced / --from-plan modes (no event file; start mid-pipeline)
+# --------------------------------------------------------------------------
+
+def _invoke_from(args):
+    """Invoke the seed-config CLI with an explicit argument list."""
+    return CliRunner().invoke(main, [str(a) for a in args])
+
+
+def test_from_reduced_minimal(tmp_path):
+    """A reduced dataset + minimal seed yields a state with reduction done."""
+    reduced = tmp_path / "REFL_226642_3_226644_partial.txt"
+    reduced.write_text("0.01 1.0 0.1\n")
+    ctx = tmp_path / "context.md"
+    ctx.write_text("# context")
+    seed = {
+        "output_directory": str(tmp_path / "out"),
+        "context_file": str(ctx),
+        "sequence_total": 3,
+    }
+    seed_path = tmp_path / "seed.json"
+    _write_seed(seed_path, seed)
+    out_path = tmp_path / "state.json"
+
+    result = _invoke_from([seed_path, "--from-reduced", reduced, "-o", out_path])
+    assert result.exit_code == 0, result.output
+
+    state = json.loads(out_path.read_text())
+    assert state["schema_version"] == "2"
+    red = state["stages"]["reduction"]
+    assert red["status"] == "ok"
+    assert red["artifacts"]["partial_file"] == str(reduced)
+    assert red["info"]["externally_reduced"] is True
+    # downstream stages remain pending
+    assert state["stages"]["analysis"]["status"] == "pending"
+    assert state["stages"]["assembly"]["status"] == "pending"
+    op = state["inputs"]["operator"]
+    assert op["context_file"] == str(ctx)
+    assert op["output_directory"] == str(tmp_path / "out")
+    assert op["sequence_total"] == 3
+    # LLM defaults applied, identity absent, no event file in this mode
+    assert op["llm"]["provider"] == "local"
+    assert state["workflow"] == {}
+    assert "nexus_file" not in state["inputs"]["derived"]
+
+
+def test_from_reduced_relative_paths_resolve_against_cwd(tmp_path, monkeypatch):
+    """Without identity, relative seed/data paths resolve against the cwd."""
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    (workdir / "partial.txt").write_text("data")
+    (workdir / "context.md").write_text("# c")
+    seed = {"output_directory": "out", "context_file": "context.md"}
+    _write_seed(workdir / "seed.json", seed)
+
+    monkeypatch.chdir(workdir)
+    result = _invoke_from(["seed.json", "--from-reduced", "partial.txt",
+                           "-o", "state.json"])
+    assert result.exit_code == 0, result.output
+
+    state = json.loads((workdir / "state.json").read_text())
+    assert state["stages"]["reduction"]["artifacts"]["partial_file"] == \
+        str(workdir / "partial.txt")
+    op = state["inputs"]["operator"]
+    assert op["context_file"] == str(workdir / "context.md")
+    assert op["output_directory"] == str(workdir / "out")
+
+
+def test_from_reduced_records_identity_metadata(tmp_path, monkeypatch):
+    """Identity in the seed is recorded as workflow metadata; no /SNS paths.
+
+    The --from-* modes are local-first: run/instrument/ipts are recorded as
+    given, but no canonical facility paths are fabricated and relative paths
+    still resolve against the working directory.
+    """
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    (workdir / "partial.txt").write_text("data")
+    (workdir / "context.md").write_text("# c")
+    seed = {
+        "run": "226644",          # accepts a numeric string, stored as int
+        "instrument": "REF_L",
+        "ipts": "IPTS-36897",
+        "output_directory": "out",
+        "context_file": "context.md",
+        "sequence_total": 3,
+    }
+    _write_seed(workdir / "seed.json", seed)
+
+    monkeypatch.chdir(workdir)
+    result = _invoke_from(["seed.json", "--from-reduced", "partial.txt",
+                           "-o", "state.json"])
+    assert result.exit_code == 0, result.output
+
+    state = json.loads((workdir / "state.json").read_text())
+    assert state["workflow"] == {
+        "run": 226644, "instrument": "REF_L", "ipts": "IPTS-36897",
+    }
+    assert isinstance(state["workflow"]["run"], int)
+    op = state["inputs"]["operator"]
+    assert op["context_file"] == str(workdir / "context.md")
+    assert op["output_directory"] == str(workdir / "out")
+    # no canonical /SNS paths are invented from identity
+    assert state["inputs"]["derived"] == {}
+
+
+def test_from_reduced_missing_required_key_errors(tmp_path):
+    reduced = tmp_path / "partial.txt"
+    reduced.write_text("d")
+    ctx = tmp_path / "context.md"
+    ctx.write_text("# c")
+    seed = {"context_file": str(ctx)}  # missing output_directory
+    seed_path = tmp_path / "seed.json"
+    _write_seed(seed_path, seed)
+    out_path = tmp_path / "state.json"
+    result = _invoke_from([seed_path, "--from-reduced", reduced, "-o", out_path])
+    assert result.exit_code != 0
+    assert "output_directory" in result.output
+
+
+def test_from_reduced_context_file_must_exist(tmp_path):
+    reduced = tmp_path / "partial.txt"
+    reduced.write_text("d")
+    seed = {
+        "output_directory": str(tmp_path / "out"),
+        "context_file": str(tmp_path / "nope.md"),
+    }
+    seed_path = tmp_path / "seed.json"
+    _write_seed(seed_path, seed)
+    out_path = tmp_path / "state.json"
+    result = _invoke_from([seed_path, "--from-reduced", reduced, "-o", out_path])
+    assert result.exit_code != 0
+    assert "context_file" in result.output
+
+
+def test_from_plan_minimal(tmp_path):
+    """A plan (job YAML) + minimal seed wires it into stages.analysis."""
+    plan = tmp_path / "job_Cu-D2O-226642.yaml"
+    plan.write_text("model_name: Cu-D2O\n")
+    seed = {"output_directory": str(tmp_path / "out")}
+    seed_path = tmp_path / "seed.json"
+    _write_seed(seed_path, seed)
+    out_path = tmp_path / "state.json"
+
+    result = _invoke_from([seed_path, "--from-plan", plan, "-o", out_path])
+    assert result.exit_code == 0, result.output
+
+    state = json.loads(out_path.read_text())
+    ana = state["stages"]["analysis"]
+    assert ana["artifacts"]["job_yaml"] == str(plan)
+    # the fit has not run yet, so analysis stays pending
+    assert ana["status"] == "pending"
+    assert ana["info"]["externally_planned"] is True
+    # reduction was not provided in this mode
+    assert state["stages"]["reduction"]["status"] == "pending"
+    assert state["inputs"]["operator"]["output_directory"] == str(tmp_path / "out")
+
+
+def test_from_plan_missing_output_directory_errors(tmp_path):
+    plan = tmp_path / "job.yaml"
+    plan.write_text("x: 1\n")
+    seed = {"prompt": "hi"}  # no output_directory
+    seed_path = tmp_path / "seed.json"
+    _write_seed(seed_path, seed)
+    out_path = tmp_path / "state.json"
+    result = _invoke_from([seed_path, "--from-plan", plan, "-o", out_path])
+    assert result.exit_code != 0
+    assert "output_directory" in result.output
+
+
+def test_from_reduced_and_from_plan_mutually_exclusive(tmp_path):
+    reduced = tmp_path / "partial.txt"
+    reduced.write_text("a")
+    plan = tmp_path / "job.yaml"
+    plan.write_text("b: 1\n")
+    ctx = tmp_path / "context.md"
+    ctx.write_text("# c")
+    seed = {"output_directory": str(tmp_path / "out"), "context_file": str(ctx)}
+    seed_path = tmp_path / "seed.json"
+    _write_seed(seed_path, seed)
+    out_path = tmp_path / "state.json"
+    result = _invoke_from([seed_path, "--from-reduced", reduced,
+                           "--from-plan", plan, "-o", out_path])
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_from_reduced_requires_single_positional(tmp_path):
+    """Passing EVENT_FILE SEED_FILE alongside --from-reduced is rejected."""
+    reduced = tmp_path / "partial.txt"
+    reduced.write_text("d")
+    ctx = tmp_path / "context.md"
+    ctx.write_text("# c")
+    seed = {"output_directory": str(tmp_path / "out"), "context_file": str(ctx)}
+    seed_path = tmp_path / "seed.json"
+    _write_seed(seed_path, seed)
+    out_path = tmp_path / "state.json"
+    result = _invoke_from([reduced, seed_path, "--from-reduced", reduced,
+                           "-o", out_path])
+    assert result.exit_code != 0
+    assert "SEED_FILE" in result.output

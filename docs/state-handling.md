@@ -35,7 +35,8 @@ into each XML via the generator [`tools/build_tool_xmls.py`](../tools/build_tool
 
 ## Step 0 — produce the seed
 
-There are two entry points; pick whichever fits the situation.
+There are two main entry points (plus two mid-pipeline `seed-config` modes,
+below); pick whichever fits the situation.
 
 **`seed-config`** (single run, on-demand): give it the run's event-file
 path and a tiny seed (JSON or YAML) carrying just the things this tool
@@ -64,6 +65,37 @@ common defaults under `common:`. The
 [yaml_parser.xml](../tools/yaml_parser.xml) wrapper splits it into a Galaxy
 `Collection` of per-run JSON states. [`example/batch.yaml`](../example/batch.yaml)
 is a minimal demo input.
+
+### Starting mid-pipeline
+
+When the reduction (or planning) has already happened — e.g. local
+re-analysis of an existing reflectivity file — `seed-config` has two
+local-first modes that skip the earlier stages instead of reading a NeXus
+event file:
+
+```sh
+# Already reduced: pre-fill stages.reduction so the analyzer runs plan-data directly.
+seed-config seed.yaml --from-reduced REFL_226642_3_226644_partial.txt -o 226644.json
+
+# Already planned: pre-fill stages.analysis.artifacts.job_yaml so the analyze
+# step runs without re-planning.
+seed-config seed.yaml --from-plan job_Cu-D2O-226642.yaml -o 226644.json
+```
+
+The seed needs only what that mode can't supply: `--from-reduced` wants
+`output_directory` + `context_file` (plan-data still needs the context);
+`--from-plan` wants just `output_directory`. There is no event file, so
+`run` / `instrument` / `ipts` are optional metadata you can add for a complete
+ISAAC record (no canonical `/SNS` paths are fabricated from them). Relative
+paths resolve against the current directory; absolute paths pass through.
+
+`--from-reduced` lands a complete `stages.reduction` (status `ok`,
+`artifacts.partial_file` = your file), so it feeds
+[simple_analyzer.xml](../tools/simple_analyzer.xml) or `ndip-run plan` /
+`ndip-run analyze` unchanged. `--from-plan` lands `job_yaml` with the analysis
+stage left `pending` (the fit hasn't run yet); consume it with
+`ndip-run analyze` — the analyzer XMLs always run plan-data first, so they
+would overwrite the supplied plan.
 
 Either way the result is the same shape. Per-run output (`226644.json`):
 
