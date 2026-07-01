@@ -66,11 +66,18 @@ into every generated tool XML so the foreign containers need only `python`.
   "output_directory joined with run" instead. (`test_generated_xmls_are_well_formed_xml`
   guards this.) Angle brackets *inside* a tool's `<command><![CDATA[ … ]]>`
   block are fine — CDATA is literal.
+- Only `{state,projection,canonicalize,adapters}` are mirrored. `run.py`
+  (`ndip-run`) and `yaml_parser/seed.py` (`seed-config`) are orchestration-only
+  and **not** in the shim — editing them needs no `build_tool_xmls.py` run.
+  `ndip-run` gives each stage a default `--tool-cmd` (`DEFAULT_TOOL_CMDS`) and
+  has an `ndip-run all` mode that chains plan→analyze→ingest→convert (reduction
+  excluded unless `--include-reduction`). The `.[workflow]` pip extra installs
+  the downstream CLIs; reduction/Mantid stays container/pixi-only.
 
 ## Tool / container gotchas
 
 - **Slim analyzer image has no pixi.** `analyzer.xml` and `simple_analyzer.xml`
-  run in `ghcr.io/mdoucet/analyzer:*-slim`, which has no pixi. Call CLIs
+  run in `ghcr.io/neutrons-ai/nr-analyzer:*-slim`, which has no pixi. Call CLIs
   (`python`, `plan-data`, `analyze-sample`, `aure`) **directly** — never wrap
   in `pixi run`. Non-slim images and the data-assembler image are separate;
   check the actual container before adding/removing a `pixi run` prefix.

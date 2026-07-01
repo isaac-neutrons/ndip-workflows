@@ -8,15 +8,26 @@ This is the agent-driven (no-Galaxy) orchestrator. For a given stage it:
   4. writes the updated state back.
 
 The agent never needs to know any tool's argument surface — only the stage
-name and how to invoke the tool binary. Example::
+name. Each stage has a default ``--tool-cmd`` (see ``DEFAULT_TOOL_CMDS``), so
+the tool invocation is optional; pass ``--tool-cmd`` only to override it.
+Example::
 
     S=/tmp/state.json
     seed-config /SNS/.../REF_L_226644.nxs.h5 seed.yaml -o $S   # produces the seed
-    ndip-run reduction --state $S --tool-cmd simple-reduction
-    ndip-run plan      --state $S --tool-cmd plan-data
-    ndip-run analyze   --state $S --tool-cmd "analyze-sample --no-reduction-gate"
-    ndip-run ingest    --state $S --tool-cmd "data-assembler ingest"
-    ndip-run convert   --state $S --tool-cmd "nr-isaac-format convert-ingest"
+    ndip-run reduction --state $S
+    ndip-run plan      --state $S
+    ndip-run analyze   --state $S
+    ndip-run ingest    --state $S
+    ndip-run convert   --state $S
+
+For a Mantid-free local run, seed past reduction and drive the whole downstream
+chain in one shot::
+
+    seed-config seed.yaml --from-reduced REFL_..._partial.txt -o $S
+    ndip-run all --state $S       # plan -> analyze -> ingest -> convert
+
+``ndip-run all`` skips reduction by default; pass ``--include-reduction`` to
+prepend it on a host that has the full (Mantid) tool image and an event file.
 
 Runs on a single host where the tool binaries are on ``$PATH``; cross-container
 orchestration stays Galaxy's job.
@@ -33,6 +44,23 @@ import tempfile
 from .adapters import merge_in
 from .projection import ProjectionError, project_out
 from .state import load_state, save_state
+
+
+# Default tool invocation per stage. ``--tool-cmd`` overrides these; the binaries
+# come from the ``.[workflow]`` extra (nr-analyzer, data-assembler,
+# nr-isaac-format) and must be on ``$PATH``.
+DEFAULT_TOOL_CMDS = {
+    "reduction": "simple-reduction",
+    "plan": "plan-data",
+    "analyze": "analyze-sample --no-reduction-gate",
+    "ingest": "data-assembler ingest",
+    "convert": "nr-isaac-format convert-ingest",
+}
+
+# The stages ``ndip-run all`` drives by default. Reduction is excluded: it needs
+# Mantid + an event file, and the local-first path skips it via
+# ``seed-config --from-reduced``. ``--include-reduction`` prepends it.
+CHAIN_STAGES = ("plan", "analyze", "ingest", "convert")
 
 
 def run_stage(stage, state_path, tool_cmd, output_prefix=None, result_out=None):
@@ -67,6 +95,22 @@ def run_stage(stage, state_path, tool_cmd, output_prefix=None, result_out=None):
     return exit_code
 
 
+def run_chain(stages, state_path, tool_cmds=None, output_prefix=None):
+    """Run *stages* in order via :func:`run_stage`; stop at the first non-zero rc.
+
+    Each stage uses its entry in *tool_cmds* (defaults to ``DEFAULT_TOOL_CMDS``).
+    Returns the exit code of the last stage attempted.
+    """
+    tool_cmds = tool_cmds or DEFAULT_TOOL_CMDS
+    rc = 0
+    for st in stages:
+        rc = run_stage(st, state_path, tool_cmds[st], output_prefix)
+        if rc != 0:
+            sys.stderr.write("ndip-run all: stage %r failed (exit %d); stopping.\n" % (st, rc))
+            break
+    return rc
+
+
 def _load_manifest(path, exit_code):
     """Load the tool's manifest; synthesize a failed one if it's missing/bad."""
     if path and os.path.isfile(path):
@@ -89,9 +133,24 @@ def main(argv=None):
         prog="ndip-run",
         description="Project args from state, run a stage's tool, merge its result back.",
     )
-    parser.add_argument("stage", choices=["reduction", "plan", "analyze", "ingest", "convert"])
+    parser.add_argument(
+        "stage",
+        choices=["reduction", "plan", "analyze", "ingest", "convert", "all"],
+        help="Pipeline stage, or 'all' to chain plan->analyze->ingest->convert.",
+    )
     parser.add_argument("--state", required=True, help="Path to the workflow-state JSON (updated in place).")
-    parser.add_argument("--tool-cmd", required=True, help="The tool invocation, e.g. 'analyze-sample --no-reduction-gate'.")
+    parser.add_argument(
+        "--tool-cmd",
+        default=None,
+        help="The tool invocation, e.g. 'analyze-sample --no-reduction-gate'. "
+             "Defaults per stage (see DEFAULT_TOOL_CMDS); not allowed with 'all'.",
+    )
+    parser.add_argument(
+        "--include-reduction",
+        action="store_true",
+        help="With 'all', prepend the reduction stage (needs the full Mantid "
+             "image and an event file).",
+    )
     parser.add_argument("--output-prefix", default=None, help="Operator output dir for path canonicalization.")
     parser.add_argument("--result-out", default=None, help="Where the tool writes its manifest (default: temp file).")
     args = parser.parse_args(argv)
@@ -104,7 +163,17 @@ def main(argv=None):
             (state.get("inputs") or {}).get("operator", {}).get("output_directory") or None
         )
 
-    rc = run_stage(args.stage, args.state, args.tool_cmd, output_prefix, args.result_out)
+    if args.stage == "all":
+        if args.tool_cmd is not None:
+            parser.error("--tool-cmd cannot be combined with the 'all' stage; each stage uses its default tool.")
+        if args.result_out is not None:
+            parser.error("--result-out cannot be combined with the 'all' stage.")
+        stages = (("reduction",) + CHAIN_STAGES) if args.include_reduction else CHAIN_STAGES
+        rc = run_chain(stages, args.state, output_prefix=output_prefix)
+        sys.exit(rc)
+
+    tool_cmd = args.tool_cmd or DEFAULT_TOOL_CMDS[args.stage]
+    rc = run_stage(args.stage, args.state, tool_cmd, output_prefix, args.result_out)
     sys.exit(rc)
 
 

@@ -334,20 +334,35 @@ stage failed, else `pending` if any is still pending, else `ok`.
 ## Running the chain without Galaxy
 
 The `ndip-run` console script wraps project-out → tool → merge-in for any
-single host where the tool binaries are on `$PATH`. The agent never needs to
-know any tool's argument surface:
+single host where the tool binaries are on `$PATH` (install them with
+`pip install '.[workflow]'`). Each stage has a default `--tool-cmd`, so the
+agent never needs to know any tool's name or argument surface:
 
 ```bash
 S=/tmp/state.json
 
 seed-config /SNS/REF_L/IPTS-36897/nexus/REF_L_226644.nxs.h5 seed.yaml -o $S
 
-ndip-run reduction --state $S --tool-cmd simple-reduction
-ndip-run plan      --state $S --tool-cmd plan-data
-ndip-run analyze   --state $S --tool-cmd "analyze-sample --no-reduction-gate"
-ndip-run ingest    --state $S --tool-cmd "data-assembler ingest"
-ndip-run convert   --state $S --tool-cmd "nr-isaac-format convert-ingest"
+ndip-run reduction --state $S      # default --tool-cmd 'simple-reduction'
+ndip-run plan      --state $S      # 'plan-data'
+ndip-run analyze   --state $S      # 'analyze-sample --no-reduction-gate'
+ndip-run ingest    --state $S      # 'data-assembler ingest'
+ndip-run convert   --state $S      # 'nr-isaac-format convert-ingest'
 ```
+
+Pass `--tool-cmd` to override any default (e.g. `--tool-cmd "aure analyze ..."`).
+
+**Mantid-free local run.** Reduction needs Mantid; the other stages don't. Seed
+past reduction from an existing partial file and chain the rest in one shot:
+
+```bash
+seed-config seed.yaml --from-reduced REFL_226642_3_226644_partial.txt -o $S
+ndip-run all --state $S            # plan -> analyze -> ingest -> convert
+```
+
+`ndip-run all` runs the downstream stages in order and stops on the first
+failure; it excludes reduction unless you pass `--include-reduction` (which
+needs the full Mantid image and an event file).
 
 After each step `$S` is the latest snapshot. For manual control, the
 individual halves are also callable: `python -m ndip_state.state project-out

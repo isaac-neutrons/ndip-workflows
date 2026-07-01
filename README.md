@@ -81,8 +81,8 @@ Galaxy wrapper: [`tools/yaml_parser.xml`](tools/yaml_parser.xml).
 |------------------------------------------------------------|-----------------------------------------------------------|--------------------------------------------------------|
 | [`seed_config.xml`](tools/seed_config.xml)                 | `ghcr.io/isaac-neutrons/ndip-workflows`                   | `seed-config` (this repo)                              |
 | [`yaml_parser.xml`](tools/yaml_parser.xml)                 | `ghcr.io/isaac-neutrons/ndip-workflows`                   | `yaml-parser` (this repo)                              |
-| [`reduction.xml`](tools/reduction.xml)                     | `ghcr.io/mdoucet/analyzer`                                | `simple-reduction` ([mdoucet/analyzer](https://github.com/mdoucet/analyzer)) |
-| [`simple_analyzer.xml`](tools/simple_analyzer.xml)         | `ghcr.io/mdoucet/analyzer:*-slim`                         | `plan-data` + `analyze-sample` (same)                  |
+| [`reduction.xml`](tools/reduction.xml)                     | `ghcr.io/neutrons-ai/nr-analyzer`                         | `simple-reduction` ([neutrons-ai/nr-analyzer](https://github.com/neutrons-ai/nr-analyzer)) |
+| [`simple_analyzer.xml`](tools/simple_analyzer.xml)         | `ghcr.io/neutrons-ai/nr-analyzer:*-slim`                  | `plan-data` + `analyze-sample` (same)                  |
 | [`data_assembler.xml`](tools/data_assembler.xml)           | `ghcr.io/isaac-neutrons/data-assembler`                   | `data-assembler ingest` + `nr-isaac-format convert-ingest` |
 
 The three downstream tool XMLs are **generated** from `tools/*.xml.in`
@@ -121,10 +121,41 @@ example/             — runnable seed.json + batch.yaml + sample partial files
 workflows/           — Galaxy workflow definitions (.ga)
 ```
 
-## Development
+## Installing
 
 ```sh
-pip install -e '.[test]'
+pip install -e '.[test]'         # dev: this repo + pytest (stdlib-light)
+pip install -e '.[workflow]'     # + the downstream science CLIs (needs Python >=3.11)
+```
+
+The `[workflow]` extra installs the tools `ndip-run` shells out to — `plan-data`
+and `analyze-sample` (from [`nr-analyzer`](https://github.com/neutrons-ai/nr-analyzer),
+**without** Mantid), `aure`, `data-assembler`, and `nr-isaac-format` — so the
+whole chain from an already-reduced file to an ISAAC record runs on a plain
+Python env, no Galaxy. Granular extras `analyzer` / `assembler` install just one
+side; `all` = `workflow` + `test`.
+
+**Reduction is not in any extra.** It needs Mantid, which is conda/pixi-only and
+not pip-installable; run it via the `ghcr.io/neutrons-ai/nr-analyzer` (full)
+container, or skip it — see below.
+
+### Running the full workflow without Galaxy
+
+When a run's reduced partial file already exists locally, seed *past* reduction
+with `seed-config --from-reduced` (it marks `stages.reduction` done and points
+at your file), then let `plan-data` find the sister files and drive the rest:
+
+```sh
+S=./state.json
+seed-config seed.yaml --from-reduced REFL_226642_3_226644_partial.txt -o $S
+ndip-run all --state $S           # plan -> analyze -> ingest -> convert
+```
+
+`ndip-run all` chains the downstream stages (each with its default `--tool-cmd`)
+and stops on the first failure; it skips reduction unless you pass
+`--include-reduction` (which needs the full Mantid image and an event file).
+
+```sh
 pytest
 ```
 
@@ -136,6 +167,6 @@ that ships into foreign containers via Galaxy's configfile mechanism.
 
 | Command       | Purpose |
 |---------------|---------|
-| `seed-config` | Single-run seed: event file + minimal seed YAML/JSON → state JSON. |
+| `seed-config` | Single-run seed: event file + minimal seed YAML/JSON → state JSON. Also `--from-reduced` / `--from-plan` to start mid-pipeline. |
 | `yaml-parser` | Batch seed: one YAML of many runs → a directory of state JSONs. |
-| `ndip-run`    | Drive one pipeline stage (project-out → tool `--result-out` → merge-in). Agent-friendly. |
+| `ndip-run`    | Drive one pipeline stage (project-out → tool `--result-out` → merge-in), or `ndip-run all` to chain the downstream stages. `--tool-cmd` defaults per stage. Agent-friendly. |

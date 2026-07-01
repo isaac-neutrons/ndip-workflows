@@ -8,6 +8,7 @@ version = "1.0.0"
 description = "Parse a batch YAML file into NeXus file links and JSON configs for Galaxy workflows"
 authors = [{name = "Oak Ridge National Laboratory"}]
 license = {text = "BSD-3-Clause"}
+requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
     "click",
@@ -18,6 +19,33 @@ dependencies = [
 test = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+]
+
+# Analysis CLIs `ndip-run` shells out to for plan/analyze. nr-analyzer is
+# installed WITHOUT its [reduction] extra, so no Mantid is pulled in; it still
+# provides plan-data + analyze-sample. It also depends on `aure`, so the
+# `aure analyze` CLI lands on $PATH transitively (don't re-declare it here — a
+# second direct-URL reference must match nr-analyzer's exactly or pip conflicts).
+analyzer = [
+    "nr-analyzer @ git+https://github.com/neutrons-ai/nr-analyzer.git",
+]
+
+# Assembly CLIs: `data-assembler ingest` + `nr-isaac-format convert-ingest`
+# (two separate repos; the Galaxy image just bundles both).
+assembler = [
+    "data-assembler @ git+https://github.com/isaac-neutrons/data-assembler.git",
+    "nr-isaac-format @ git+https://github.com/isaac-neutrons/nr-isaac-format.git",
+]
+
+# The whole Mantid-free pipeline (plan -> analyze -> ingest -> convert). Reduction
+# needs Mantid (conda/pixi-only) and is skipped via `seed-config --from-reduced`.
+workflow = [
+    "yaml-parser[analyzer,assembler]",
+]
+
+# Everything a developer wants: workflow tools + test harness.
+all = [
+    "yaml-parser[workflow,test]",
 ]
 
 [project.scripts]

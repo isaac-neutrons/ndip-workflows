@@ -19,7 +19,10 @@ import os
 import stat
 import textwrap
 
-from ndip_state.run import run_stage
+import pytest
+
+from ndip_state import run as run_mod
+from ndip_state.run import CHAIN_STAGES, DEFAULT_TOOL_CMDS, run_chain, run_stage
 from ndip_state.state import empty_state, overall_status, save_state
 
 
@@ -176,3 +179,133 @@ def test_chain_records_failure_when_tool_errors(tmp_path):
     assert s["stages"]["reduction"]["status"] == "failed"
     assert s["errors"][0]["stage"] == "reduction"
     assert s["errors"][0]["exit_code"] == 7
+
+
+# --- `ndip-run all` chain runner + default tool-cmds --------------------------
+
+def _seed_state_reduced(tmp_path):
+    """A seed that already has reduction done, as `--from-reduced` produces."""
+    s = _seed_state(tmp_path)
+    s["stages"]["reduction"] = {
+        "status": "ok",
+        "params": {},
+        "artifacts": {"partial_file": "/out/sample5/partial.txt"},
+        "info": {"externally_reduced": True},
+    }
+    return s
+
+
+def _downstream_stubs(tmp_path):
+    """Stub tool-cmds for the plan->analyze->ingest->convert chain."""
+    py = os.environ.get("PYTHON", "python3")
+    return {
+        "plan": "%s %s" % (py, _make_stub(tmp_path / "plan.py", _PLAN)),
+        "analyze": "%s %s" % (py, _make_stub(tmp_path / "ana.py", _ANALYZE)),
+        "ingest": "%s %s" % (py, _make_stub(tmp_path / "ing.py", _INGEST)),
+        "convert": "%s %s" % (py, _make_stub(tmp_path / "con.py", _CONVERT)),
+    }
+
+
+def test_chain_stages_excludes_reduction():
+    assert CHAIN_STAGES == ("plan", "analyze", "ingest", "convert")
+    assert "reduction" not in CHAIN_STAGES
+
+
+def test_run_chain_downstream_from_reduced(tmp_path):
+    """The Mantid-free chain runs end to end from a reduction-`ok` seed."""
+    tool_cmds = _downstream_stubs(tmp_path)
+    state_path = str(tmp_path / "state.json")
+    save_state(_seed_state_reduced(tmp_path), state_path)
+
+    rc = run_chain(CHAIN_STAGES, state_path, tool_cmds=tool_cmds)
+    assert rc == 0
+
+    with open(state_path) as f:
+        s = json.load(f)
+    assert overall_status(s) == "ok"
+    assert s["stages"]["analysis"]["params"]["model_name"] == "Cu-D2O"
+    assert s["stages"]["assembly"]["artifacts"]["isaac_record"].endswith(
+        "isaac_record_226644.json"
+    )
+
+
+def test_run_chain_stops_on_first_failure(tmp_path):
+    """A failing stage aborts the chain; later stages never run."""
+    tool_cmds = _downstream_stubs(tmp_path)
+    py = os.environ.get("PYTHON", "python3")
+    # Replace analyze with a stub that exits non-zero and writes no manifest.
+    tool_cmds["analyze"] = "%s %s" % (
+        py, _make_stub(tmp_path / "bad_ana.py", "import sys\nsys.exit(5)\n")
+    )
+    state_path = str(tmp_path / "state.json")
+    save_state(_seed_state_reduced(tmp_path), state_path)
+
+    rc = run_chain(CHAIN_STAGES, state_path, tool_cmds=tool_cmds)
+    assert rc == 5
+
+    with open(state_path) as f:
+        s = json.load(f)
+    assert s["stages"]["analysis"]["status"] == "failed"
+    # ingest/convert never ran, so assembly is untouched.
+    assert s["stages"]["assembly"]["status"] == "pending"
+    assert s["errors"][0]["stage"] == "analysis"
+
+
+def test_main_defaults_tool_cmd(tmp_path, monkeypatch):
+    """`--tool-cmd` omitted resolves to the per-stage default."""
+    captured = {}
+
+    def fake_run_stage(stage, state_path, tool_cmd, output_prefix=None, result_out=None):
+        captured["stage"] = stage
+        captured["tool_cmd"] = tool_cmd
+        return 0
+
+    monkeypatch.setattr(run_mod, "run_stage", fake_run_stage)
+    state_path = str(tmp_path / "state.json")
+    save_state(_seed_state(tmp_path), state_path)
+
+    with pytest.raises(SystemExit) as exc:
+        run_mod.main(["plan", "--state", state_path])
+    assert exc.value.code == 0
+    assert captured["tool_cmd"] == DEFAULT_TOOL_CMDS["plan"] == "plan-data"
+
+
+def test_main_all_chains_downstream_with_defaults(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run_stage(stage, state_path, tool_cmd, output_prefix=None, result_out=None):
+        calls.append((stage, tool_cmd))
+        return 0
+
+    monkeypatch.setattr(run_mod, "run_stage", fake_run_stage)
+    state_path = str(tmp_path / "state.json")
+    save_state(_seed_state_reduced(tmp_path), state_path)
+
+    with pytest.raises(SystemExit) as exc:
+        run_mod.main(["all", "--state", state_path])
+    assert exc.value.code == 0
+    assert [c[0] for c in calls] == ["plan", "analyze", "ingest", "convert"]
+    assert [c[1] for c in calls] == [DEFAULT_TOOL_CMDS[s] for s in CHAIN_STAGES]
+
+
+def test_main_all_include_reduction_prepends_reduction(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        run_mod, "run_stage",
+        lambda stage, *a, **k: (calls.append(stage) or 0),
+    )
+    state_path = str(tmp_path / "state.json")
+    save_state(_seed_state_reduced(tmp_path), state_path)
+
+    with pytest.raises(SystemExit) as exc:
+        run_mod.main(["all", "--state", state_path, "--include-reduction"])
+    assert exc.value.code == 0
+    assert calls == ["reduction", "plan", "analyze", "ingest", "convert"]
+
+
+def test_main_all_rejects_tool_cmd(tmp_path):
+    state_path = str(tmp_path / "state.json")
+    save_state(_seed_state_reduced(tmp_path), state_path)
+    with pytest.raises(SystemExit) as exc:
+        run_mod.main(["all", "--state", state_path, "--tool-cmd", "x"])
+    assert exc.value.code == 2  # argparse parser.error
