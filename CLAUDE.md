@@ -80,6 +80,16 @@ into every generated tool XML so the foreign containers need only `python`.
   next to the data, run `aure analyze`, synthesize the manifest from
   `problem.json`. This ports the AuRE branch of `analyzer.xml`; run.py isn't in
   the shim, so no `build_tool_xmls.py` run is needed.
+- **`ndip-package`** (`src/ndip_state/package.py`, orchestration-only, not in the
+  shim) reads a final state and gathers a git-storable **provenance package**
+  (inputs/plan/model/results + reports + AI record + `MANIFEST.json` with
+  roles/sha256/tool versions + `REPRODUCE.md`). It resolves artifacts from the
+  recorded state paths (anchored on `dirname(problem_json)`) so it fits **both**
+  analyzer backends, and references large binaries/regenerable byproducts instead
+  of copying. `merge_in` now captures each tool's `tool_version` into
+  `stages.<stage>.info.tool_versions` — **adapters.py is mirrored in the shim**,
+  so that change required editing `tools/ndip_shim.py` too and re-running
+  `build_tool_xmls.py`.
 
 ## Tool / container gotchas
 

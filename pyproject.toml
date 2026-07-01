@@ -52,6 +52,7 @@ all = [
 yaml-parser = "yaml_parser.cli:main"
 seed-config = "yaml_parser.seed:main"
 ndip-run = "ndip_state.run:main"
+ndip-package = "ndip_state.package:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

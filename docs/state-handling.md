@@ -385,6 +385,17 @@ individual halves are also callable: `python -m ndip_state.state project-out
 STAGE STATE` and `python -m ndip_state.state merge-in STAGE STATE_IN RESULT
 EXIT_CODE STATE_OUT [--output-prefix DIR]`.
 
+## Packaging a reproducible record
+
+Once the chain is done, `ndip-package --state $S -o <dir>` reads the final state
+and gathers the scattered analysis artifacts into one git-storable
+**provenance package** — inputs, plan, model (or AuRE `checkpoints/` trail),
+compact fit results, reports, the AI record, plus a `MANIFEST.json` (per-file
+role + sha256 + tool versions, now including each stage's
+`info.tool_versions`) and a `REPRODUCE.md` runbook. Large binaries (raw NeXus,
+parquet) and bulky regenerable byproducts are recorded by reference. It handles
+both `--analyzer` backends.
+
 ## Where things live
 
 | Concern | File |
@@ -396,6 +407,7 @@ EXIT_CODE STATE_OUT [--output-prefix DIR]`.
 | merge-in (manifest → state) | [src/ndip_state/adapters.py](../src/ndip_state/adapters.py) |
 | Path canonicalisation | [src/ndip_state/canonicalize.py](../src/ndip_state/canonicalize.py) |
 | Agent-driven runner | [src/ndip_state/run.py](../src/ndip_state/run.py) (`ndip-run`) |
+| Provenance packager | [src/ndip_state/package.py](../src/ndip_state/package.py) (`ndip-package`) |
 | Inlined runtime shim | [tools/ndip_shim.py](../tools/ndip_shim.py) + [tools/build_tool_xmls.py](../tools/build_tool_xmls.py) |
 | Tool XML templates | `tools/*.xml.in` (generator inlines the shim → `tools/*.xml`) |
 | `yaml-parser` → batched seeds | [src/yaml_parser/cli.py](../src/yaml_parser/cli.py) |

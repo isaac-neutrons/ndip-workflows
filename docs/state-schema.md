@@ -146,6 +146,10 @@ Two notable derived params that the orchestrator (not the tool) adds:
 - `reduction.params.template_sha256` — content hash of `inputs.operator.template_file`, computed at merge-in so the record reproduces even if the file is later modified.
 - `assembly.params.{nexus_input, reduced_input, model_input}` — the resolved input paths the orchestrator handed to `data-assembler ingest` / `nr-isaac-format convert-ingest`, recorded so each stage's record is self-contained.
 
+One derived **info** field:
+
+- `<stage>.info.tool_versions` — captured by [merge-in](../src/ndip_state/adapters.py) from each tool's `tool_version` (a top-level [manifest](tool-result-schema.md) field), keyed by the *call-stage* so the two calls that share a record don't clobber each other, e.g. `analysis.info.tool_versions = {"plan": {"tool": "plan-data", "version": "0.7.2"}, "analyze": {"tool": "aure", "version": "0.3.1"}}`. This records the version that actually ran each stage. Absent when a tool doesn't report a version.
+
 ## Building a state from a flat dict
 
 `build_state(flat)` is the constructor that `yaml-parser` and `seed-config`

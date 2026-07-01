@@ -359,6 +359,15 @@ def merge_in(stage, state, manifest, exit_code=0, output_prefix=None):
         blended.update(manifest.get("params") or {})
         manifest["params"] = blended
     merge_stage(state, _TARGET[stage], manifest, exit_code)
+    # Record the tool's self-reported version, keyed by call-stage so the two
+    # calls sharing a target record do not clobber each other.
+    tool_version = manifest.get("tool_version")
+    if tool_version:
+        info = state["stages"][_TARGET[stage]].setdefault("info", {})
+        info.setdefault("tool_versions", {})[stage] = {
+            "tool": manifest.get("tool"),
+            "version": tool_version,
+        }
     if output_prefix:
         canonical = canonicalize_paths(state, output_prefix)
         if canonical is not state:

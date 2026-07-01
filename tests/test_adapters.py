@@ -71,6 +71,29 @@ def test_plan_and_analyze_both_fold_into_analysis():
     assert ana["info"]["pipeline_status"] == "ok"
 
 
+def test_tool_version_captured_per_call_stage():
+    s = _seeded()
+    # plan (plan-data) and analyze (a different tool) both fold into analysis;
+    # each version is kept under its own call-stage key, not overwritten.
+    merge_in("plan", s, {
+        "status": "ok", "tool": "plan-data", "tool_version": "0.7.2",
+        "artifacts": {"job_yaml": "/out/sample5/plan/job.yaml"},
+    })
+    merge_in("analyze", s, {
+        "status": "ok", "tool": "aure", "tool_version": "0.3.1",
+        "artifacts": {"problem_json": "/out/sample5/results/problem.json"},
+    })
+    versions = s["stages"]["analysis"]["info"]["tool_versions"]
+    assert versions["plan"] == {"tool": "plan-data", "version": "0.7.2"}
+    assert versions["analyze"] == {"tool": "aure", "version": "0.3.1"}
+
+
+def test_tool_version_absent_when_manifest_omits_it():
+    s = _seeded()
+    merge_in("plan", s, {"status": "ok", "artifacts": {"job_yaml": "/j.yaml"}})
+    assert "tool_versions" not in s["stages"]["analysis"].get("info", {})
+
+
 def test_ingest_derives_input_provenance():
     s = _seeded()
     s["stages"]["reduction"]["artifacts"]["partial_file"] = "/out/sample5/partial.txt"

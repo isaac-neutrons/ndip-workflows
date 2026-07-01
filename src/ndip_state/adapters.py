@@ -92,6 +92,19 @@ def merge_in(stage, state, manifest, exit_code=0, output_prefix=None):
 
     merge_stage(state, _TARGET[stage], manifest, exit_code)
 
+    # Record the tool's self-reported version (ndip-tool-result carries a
+    # top-level tool_version). Key by the call-stage so the two calls that share
+    # a target record (plan+analyze into analysis, ingest+convert into assembly)
+    # don't clobber each other. Set after merge_stage so it survives the second
+    # call's shallow info-update.
+    tool_version = manifest.get("tool_version")
+    if tool_version:
+        info = state["stages"][_TARGET[stage]].setdefault("info", {})
+        info.setdefault("tool_versions", {})[stage] = {
+            "tool": manifest.get("tool"),
+            "version": tool_version,
+        }
+
     if output_prefix:
         # canonicalize_paths returns a new structure; keep merge_in's in-place
         # contract (consistent with merge_stage) by writing the result back.

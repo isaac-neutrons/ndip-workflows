@@ -163,6 +163,27 @@ agentic AuRE analyzer). It applies to both `ndip-run analyze` and `ndip-run all`
 ndip-run all --state $S --analyzer aure
 ```
 
+### Provenance package
+
+The analysis artifacts land in scattered folders (`plan/`, `models/`,
+`results/<model>/`, `reports/`, `assembled/`). `ndip-package` reads the final
+state and gathers them into one organized, git-storable directory — the
+reproduction core (inputs, plan, model/checkpoints, compact fit results),
+reports, the AI record, plus a `MANIFEST.json` (per-file role + sha256 + tool
+versions) and a `REPRODUCE.md` runbook:
+
+```sh
+ndip-package --state $S -o path/to/repo/provenance/<model>
+```
+
+It works for both analyzer backends (simple's `models/<model>.py` +
+`results/<model>/`, or AuRE's top-level `problem.json` + `checkpoints/` trail),
+copies the small text artifacts, and **references** large binaries (raw NeXus,
+parquet) and bulky regenerable byproducts (MCMC chains, plots) by path + sha256.
+Because planning (LLM) and fitting (MCMC) aren't bit-reproducible, the package is
+*frozen-artifact-authoritative*: it records inputs + LLM endpoint + tool versions
+so a re-run can be compared, not bit-verified.
+
 ```sh
 pytest
 ```
@@ -178,3 +199,4 @@ that ships into foreign containers via Galaxy's configfile mechanism.
 | `seed-config` | Single-run seed: event file + minimal seed YAML/JSON → state JSON. Also `--from-reduced` / `--from-plan` to start mid-pipeline. |
 | `yaml-parser` | Batch seed: one YAML of many runs → a directory of state JSONs. |
 | `ndip-run`    | Drive one pipeline stage (project-out → tool `--result-out` → merge-in), or `ndip-run all` to chain the downstream stages. `--tool-cmd` defaults per stage; `--analyzer {simple,aure}` picks the analyze backend. Agent-friendly. |
+| `ndip-package`| Gather a reproducible **provenance package** (inputs, plan, model, compact results, reports, AI record + a manifest of roles/checksums/tool versions) from a final state. |

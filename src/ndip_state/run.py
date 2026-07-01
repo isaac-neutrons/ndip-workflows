@@ -163,10 +163,12 @@ def run_analyze_aure(state_path, tool_cmd=DEFAULT_AURE_CMD, output_prefix=None):
     proc = subprocess.run(cmd, env=_llm_env(state))
     exit_code = proc.returncode
 
-    # aure drops the best-fit problem.json at the top of the results dir.
+    # aure drops the best-fit problem.json at the top of the results dir. Record
+    # results_dir too so the state names the AuRE analysis dir explicitly (the
+    # provenance packager anchors on dirname(problem_json), but this is clearer).
     model = os.path.join(results_dir, "problem.json")
     if exit_code == 0 and os.path.isfile(model):
-        manifest = {"status": "ok", "artifacts": {"problem_json": model}}
+        manifest = {"status": "ok", "artifacts": {"problem_json": model, "results_dir": results_dir}}
     else:
         manifest = {
             "status": "failed",
