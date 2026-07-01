@@ -350,7 +350,23 @@ ndip-run ingest    --state $S      # 'data-assembler ingest'
 ndip-run convert   --state $S      # 'nr-isaac-format convert-ingest'
 ```
 
-Pass `--tool-cmd` to override any default (e.g. `--tool-cmd "aure analyze ..."`).
+Pass `--tool-cmd` to override any default.
+
+**Two analyzer backends.** The analyze stage matches the two Galaxy analyzer
+tools. `--analyzer simple` (default) runs `analyze-sample`
+([simple_analyzer.xml](../tools/simple_analyzer.xml)); `--analyzer aure` runs
+the agentic AuRE analyzer ([analyzer.xml](../tools/analyzer.xml)):
+
+```bash
+ndip-run analyze --state $S --analyzer aure     # 'aure analyze -c JOB -o RESULTS'
+ndip-run all     --state $S --analyzer aure     # aure for the analyze step of the chain
+```
+
+AuRE has a different CLI (`-c`/`-o`), reads the LLM endpoint from the
+environment (`ndip-run` exports it from `inputs.operator.llm`), and emits no
+result manifest — `ndip-run` stages the plan next to the reduced data and
+synthesizes the analyze manifest from the `problem.json` AuRE drops, matching
+what `analyzer.xml` does under Galaxy.
 
 **Mantid-free local run.** Reduction needs Mantid; the other stages don't. Seed
 past reduction from an existing partial file and chain the rest in one shot:

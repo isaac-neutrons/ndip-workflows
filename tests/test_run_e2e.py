@@ -22,7 +22,14 @@ import textwrap
 import pytest
 
 from ndip_state import run as run_mod
-from ndip_state.run import CHAIN_STAGES, DEFAULT_TOOL_CMDS, run_chain, run_stage
+from ndip_state.run import (
+    CHAIN_STAGES,
+    DEFAULT_AURE_CMD,
+    DEFAULT_TOOL_CMDS,
+    run_analyze_aure,
+    run_chain,
+    run_stage,
+)
 from ndip_state.state import empty_state, overall_status, save_state
 
 
@@ -309,3 +316,111 @@ def test_main_all_rejects_tool_cmd(tmp_path):
     with pytest.raises(SystemExit) as exc:
         run_mod.main(["all", "--state", state_path, "--tool-cmd", "x"])
     assert exc.value.code == 2  # argparse parser.error
+
+
+# --- AuRE analyze backend (`--analyzer aure`) --------------------------------
+
+# aure takes `-c JOB -o RESULTS`, reads LLM_* from the env, and writes no
+# manifest — it just drops problem.json in the results dir on success.
+_AURE_OK = '''
+    import json, os, sys
+    a = sys.argv[1:]
+    assert a[0] == "analyze", a
+    assert "-c" in a and "-o" in a, a
+    job = a[a.index("-c") + 1]
+    results = a[a.index("-o") + 1]
+    assert job.endswith("job.yaml"), a
+    # aure resolves LLM endpoint from the environment.
+    assert os.environ.get("LLM_PROVIDER") == "local", os.environ.get("LLM_PROVIDER")
+    os.makedirs(results, exist_ok=True)
+    with open(os.path.join(results, "problem.json"), "w") as f:
+        json.dump({"ok": True}, f)
+'''
+
+# aure exits 0 but produces no problem.json — the manifest is synthesized failed.
+_AURE_NO_MODEL = '''
+    import sys
+    assert sys.argv[1] == "analyze", sys.argv
+'''
+
+
+def _planned_state(tmp_path):
+    """A reduction-`ok` seed with a real job YAML and a writable output dir."""
+    out = tmp_path / "out"
+    job = tmp_path / "job.yaml"
+    job.write_text("model_name: Cu-D2O\n")
+    s = _seed_state_reduced(tmp_path)
+    s["inputs"]["operator"]["output_directory"] = str(out)
+    s["stages"]["analysis"] = {
+        "status": "pending", "params": {}, "artifacts": {"job_yaml": str(job)}, "info": {},
+    }
+    return s, out
+
+
+def test_run_analyze_aure_ok(tmp_path):
+    py = os.environ.get("PYTHON", "python3")
+    aure = _make_stub(tmp_path / "aure.py", _AURE_OK)
+    s, out = _planned_state(tmp_path)
+    state_path = str(tmp_path / "state.json")
+    save_state(s, state_path)
+
+    rc = run_analyze_aure(state_path, "%s %s analyze" % (py, aure), output_prefix=str(out))
+    assert rc == 0
+
+    with open(state_path) as f:
+        st = json.load(f)
+    assert st["stages"]["analysis"]["status"] == "ok"
+    assert st["stages"]["analysis"]["artifacts"]["problem_json"].endswith("problem.json")
+    # The plan YAML was staged next to the reduced data (output_directory).
+    assert (out / "job.yaml").is_file()
+
+
+def test_run_analyze_aure_synthesizes_failure_without_model(tmp_path):
+    py = os.environ.get("PYTHON", "python3")
+    aure = _make_stub(tmp_path / "aure.py", _AURE_NO_MODEL)
+    s, out = _planned_state(tmp_path)
+    state_path = str(tmp_path / "state.json")
+    save_state(s, state_path)
+
+    rc = run_analyze_aure(state_path, "%s %s analyze" % (py, aure), output_prefix=str(out))
+    assert rc == 0  # aure itself exited 0...
+
+    with open(state_path) as f:
+        st = json.load(f)
+    # ...but produced no problem.json, so analyze is recorded failed.
+    assert st["stages"]["analysis"]["status"] == "failed"
+    assert st["errors"][0]["stage"] == "analysis"
+
+
+def test_main_analyze_aure_dispatches_to_aure_backend(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_aure(state_path, tool_cmd=DEFAULT_AURE_CMD, output_prefix=None):
+        captured["tool_cmd"] = tool_cmd
+        return 0
+
+    monkeypatch.setattr(run_mod, "run_analyze_aure", fake_aure)
+    # run_stage must NOT be used for the aure analyze path.
+    monkeypatch.setattr(run_mod, "run_stage", lambda *a, **k: pytest.fail("run_stage called"))
+    s, _ = _planned_state(tmp_path)
+    state_path = str(tmp_path / "state.json")
+    save_state(s, state_path)
+
+    with pytest.raises(SystemExit) as exc:
+        run_mod.main(["analyze", "--state", state_path, "--analyzer", "aure"])
+    assert exc.value.code == 0
+    assert captured["tool_cmd"] == DEFAULT_AURE_CMD == "aure analyze"
+
+
+def test_main_all_analyzer_aure_uses_aure_for_analyze(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(run_mod, "run_stage", lambda stage, *a, **k: (calls.append(("stage", stage)) or 0))
+    monkeypatch.setattr(run_mod, "run_analyze_aure", lambda *a, **k: (calls.append(("aure",)) or 0))
+    s, _ = _planned_state(tmp_path)
+    state_path = str(tmp_path / "state.json")
+    save_state(s, state_path)
+
+    with pytest.raises(SystemExit) as exc:
+        run_mod.main(["all", "--state", state_path, "--analyzer", "aure"])
+    assert exc.value.code == 0
+    assert calls == [("stage", "plan"), ("aure",), ("stage", "ingest"), ("stage", "convert")]

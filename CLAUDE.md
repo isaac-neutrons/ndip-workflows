@@ -73,6 +73,13 @@ into every generated tool XML so the foreign containers need only `python`.
   has an `ndip-run all` mode that chains plan→analyze→ingest→convert (reduction
   excluded unless `--include-reduction`). The `.[workflow]` pip extra installs
   the downstream CLIs; reduction/Mantid stays container/pixi-only.
+  `--analyzer {simple,aure}` picks the analyze backend, mirroring the two Galaxy
+  analyzer tools. `simple` (analyze-sample) rides the generic project-out +
+  `--result-out` path; `aure` can't (different CLI `-c`/`-o`, LLM endpoint from
+  env, no manifest), so `run_analyze_aure` special-cases it — stage the job
+  next to the data, run `aure analyze`, synthesize the manifest from
+  `problem.json`. This ports the AuRE branch of `analyzer.xml`; run.py isn't in
+  the shim, so no `build_tool_xmls.py` run is needed.
 
 ## Tool / container gotchas
 

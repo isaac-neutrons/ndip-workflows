@@ -155,6 +155,14 @@ ndip-run all --state $S           # plan -> analyze -> ingest -> convert
 and stops on the first failure; it skips reduction unless you pass
 `--include-reduction` (which needs the full Mantid image and an event file).
 
+The analyze step has two backends, matching the two Galaxy analyzer tools:
+`--analyzer simple` (default, `analyze-sample`) or `--analyzer aure` (the
+agentic AuRE analyzer). It applies to both `ndip-run analyze` and `ndip-run all`:
+
+```sh
+ndip-run all --state $S --analyzer aure
+```
+
 ```sh
 pytest
 ```
@@ -169,4 +177,4 @@ that ships into foreign containers via Galaxy's configfile mechanism.
 |---------------|---------|
 | `seed-config` | Single-run seed: event file + minimal seed YAML/JSON → state JSON. Also `--from-reduced` / `--from-plan` to start mid-pipeline. |
 | `yaml-parser` | Batch seed: one YAML of many runs → a directory of state JSONs. |
-| `ndip-run`    | Drive one pipeline stage (project-out → tool `--result-out` → merge-in), or `ndip-run all` to chain the downstream stages. `--tool-cmd` defaults per stage. Agent-friendly. |
+| `ndip-run`    | Drive one pipeline stage (project-out → tool `--result-out` → merge-in), or `ndip-run all` to chain the downstream stages. `--tool-cmd` defaults per stage; `--analyzer {simple,aure}` picks the analyze backend. Agent-friendly. |
