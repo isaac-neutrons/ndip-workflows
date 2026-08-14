@@ -192,6 +192,50 @@ Because planning (LLM) and fitting (MCMC) aren't bit-reproducible, the package i
 *frozen-artifact-authoritative*: it records inputs + LLM endpoint + tool versions
 so a re-run can be compared, not bit-verified.
 
+`MANIFEST.json` also carries `fit.chisq` (and `iterations`), lifted from the
+referenced `final_state.json` at package time. That file is most of a megabyte of
+arrays so it is referenced rather than copied — but the one number every consumer
+wants from it should not require scraping the checkpoint prose, where the
+per-segment χ² values sit next to the overall one.
+
+### Handing a measurement to nr-workbench
+
+The pipeline ends with an answer nobody has to accept. `nr-workbench` is where
+the analysis continues: it can drive a coding harness unattended
+(`nrw agent run`) and then hand the result to a person (`nrw handoff`). But it
+will not start without prose under `## Fits to perform` in
+`samples/<id>/sample.md` — that is its only task channel. `ndip-workbench` writes
+it, plus the data and the register beside it:
+
+```sh
+ndip-workbench provenance/230536 --project ~/analysis/ipts-36897          # plan
+ndip-workbench provenance/230536 --project ~/analysis/ipts-36897 --write
+nrw agent run s230536
+```
+
+`SOURCE` is normally a provenance package, which is self-contained and keeps
+working after being copied to another machine; a state JSON also works, but its
+recorded paths only resolve where the pipeline ran. One handoff is **one
+measurement**: its angle segments are co-refined against each other (what the
+sample notes ask for and what AuRE did), but a second measurement is never pulled
+in — comparing measurements is judgement work for the person at `nrw handoff`.
+
+It writes `sample.md` (the five sections nr-workbench's offline checks read by
+name, with the run's own condition from `context.md`), `sample.yaml` (the
+`nrw-sample/1` register, byte-identical to what `nrw sample scan` writes), the
+reduced segments under `data/steady/`, and `handoff/prior-analysis.{md,json}` —
+the pipeline's own fit as **evidence**, never as a starting model, with the
+deterministic checks over it: parameters sitting on a bound, bounds the fit
+widened past what the notes asked for, SLDs far from their nominal, and a title in
+the header that disagrees with `context.md`.
+
+Two things it refuses to do. It will not create the project — `nrw init` also
+installs the permission hook that bounds an unattended session, and a workflow
+faking that scaffold would produce a project whose safety properties nobody
+agreed to. And it will not overwrite a `sample.md` lacking its own marker: that
+file is somebody's notes, possibly the declared task of an analysis already under
+way, and it is the one thing in an nrw project that cannot be regenerated.
+
 ```sh
 pytest
 ```
@@ -208,3 +252,4 @@ that ships into foreign containers via Galaxy's configfile mechanism.
 | `yaml-parser` | Batch seed: one YAML of many runs → a directory of state JSONs. |
 | `ndip-run`    | Drive one pipeline stage (project-out → tool `--result-out` → merge-in), or `ndip-run all` to chain the downstream stages. `--tool-cmd` defaults per stage; `--analyzer {simple,aure}` picks the analyze backend. Agent-friendly. |
 | `ndip-package`| Gather a reproducible **provenance package** (inputs, plan, model, compact results, reports, AI record + a manifest of roles/checksums/tool versions) from a final state. |
+| `ndip-workbench`| Hand one finished measurement to an **nr-workbench** project — `sample.md` (incl. the `## Fits to perform` task), `sample.yaml`, the reduced segments, and the pipeline's own fit as evidence — ready for `nrw agent run`. Reads a provenance package or a state. Plans by default; `--write` to commit. |

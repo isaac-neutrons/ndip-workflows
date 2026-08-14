@@ -122,6 +122,46 @@ into every generated tool XML so the foreign containers need only `python`.
   shim's `rundir` command; `project-out` derives the same via `_sub()`. Keep
   the two in step.
 
+## Critical: `ndip-workbench` writes into somebody's analysis directory
+
+`ndip-workbench` (`src/ndip_state/workbench.py`, orchestration-only, **not** in
+the shim) hands one measurement to an nr-workbench project. It writes into a
+directory a scientist works in, so three rules are load-bearing and each is
+tested:
+
+- **It never overwrites a `sample.md` lacking its own `MARKER`.** That file is
+  the declared task of an analysis possibly already under way — the jen-jun2026
+  reference project has fifty recorded fits behind a hand-written one — and it is
+  the only thing in an nrw project that cannot be regenerated. `--force` is the
+  escape hatch and nothing else bypasses it.
+- **It does not create the project.** `nrw init` installs the permission hook
+  that bounds an unattended session; faking that scaffold would produce a project
+  whose safety properties nobody agreed to. Missing `nrw.toml` is an error.
+- **Nothing is written without `--write`.**
+
+Two traps specific to generating files nr-workbench reads:
+
+- **No six-digit number may appear in `sample.md` except the measurement's own
+  runs.** nr-workbench matches `\b(\d{6})\b` over the whole file and reports
+  every hit it cannot find on disk as documented-but-absent, permanently. Two
+  things put one there accidentally: a full-precision ISO timestamp (its
+  microseconds field is exactly six digits, bounded by `.` and `+`) and a `%.6g`
+  float like `0.999774`. Hence `_now()` is second-precision and the parameter
+  tables live in `handoff/prior-analysis.md`, which nr-workbench does not scan.
+  `test_generated_notes_contain_no_number_nrw_would_read_as_a_foreign_run` guards
+  this with nr-workbench's own loose regex.
+- **χ² comes from `final_state.json`, then `MANIFEST.json`'s `fit.chisq`, then
+  only a *finalize-anchored* match in the checkpoint prose.** A run that hits its
+  iteration cap has no finalize node, and the nearest number in the trail is a
+  `Per-file χ²` entry — taking the last bare match reported 11.47 for run 230553
+  against a true 3.93. An unrecorded χ² is the correct answer; a segment's is
+  not.
+
+Where a check belongs to nr-workbench, defer to it rather than duplicating it:
+one direct beam per angle segment is normal, and `reconcile._direct_beams` looks
+for one angle differing *between* runs — a comparison a single measurement cannot
+make, so this tool stays silent about it.
+
 ## Conventions
 
 - Match the surrounding code's style and comment density.

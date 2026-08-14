@@ -202,6 +202,35 @@ def _versions_from_isaac(isaac_record):
     return seen
 
 
+def _fit_quality(analysis_dir):
+    """The accepted fit's chi-squared and iteration count, from ``final_state.json``.
+
+    Recorded into the manifest because ``final_state.json`` itself is *referenced*
+    rather than copied (it is most of a megabyte of arrays), and the one number
+    everybody wants from it is the fit quality. Without this a consumer reading
+    only the package has to scrape the checkpoint prose, where the per-segment
+    chi-squared values sit right next to the overall one and are easy to confuse.
+    """
+    if not analysis_dir:
+        return {}
+    try:
+        doc = json.load(open(os.path.join(analysis_dir, "final_state.json")))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(doc, dict):
+        return {}
+    chisq = doc.get("final_chi2")
+    if not isinstance(chisq, (int, float)):
+        chisq = _get(doc, "state", "best_chi2")
+    out = {}
+    if isinstance(chisq, (int, float)):
+        out["chisq"] = chisq
+    for key in ("iterations", "success"):
+        if doc.get(key) is not None:
+            out[key] = doc[key]
+    return out
+
+
 def _reproducibility(state):
     llm = _get(state, "inputs", "operator", "llm") or {}
     return {
@@ -378,6 +407,7 @@ def run_package(state, package_dir, include_reports=True, include_ai_ready=True,
                     "include_bulky": include_bulky},
         "workflow": state.get("workflow") or {},
         "model_name": model_name,
+        "fit": _fit_quality(analysis_dir),
         "overall_status": overall_status(state),
         "tool_versions": _collect_versions(state, isaac_record),
         "reproducibility": _reproducibility(state),
