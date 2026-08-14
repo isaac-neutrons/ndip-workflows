@@ -210,3 +210,6 @@ __marimo__/
 config_outputs/
 .claude/settings.json
 .DS_Store
+
+# local pipeline runs (data + artifacts, not repo content)
+runs/

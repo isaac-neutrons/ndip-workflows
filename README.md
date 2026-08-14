@@ -163,6 +163,14 @@ agentic AuRE analyzer). It applies to both `ndip-run analyze` and `ndip-run all`
 ndip-run all --state $S --analyzer aure
 ```
 
+`--analyzer aure` also changes the **ingest** step. A REF_L measurement is
+several runs — the same state at a few angles, each with its own partial file —
+and AuRE co-refines them together, so ingesting only the segment named in the
+state would throw the rest of the co-refinement away. The aure path runs
+`data-assembler ingest-workflow` over the whole results directory instead: one
+reflectivity record per segment, sharing a sample, with the model linked to all
+of them and each dataset reported against its own run.
+
 ### Provenance package
 
 The analysis artifacts land in scattered folders (`plan/`, `models/`,

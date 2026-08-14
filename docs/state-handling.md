@@ -368,6 +368,15 @@ result manifest — `ndip-run` stages the plan next to the reduced data and
 synthesizes the analyze manifest from the `problem.json` AuRE drops, matching
 what `analyzer.xml` does under Galaxy.
 
+`--analyzer aure` carries into the **ingest** stage too. The generic ingest
+projection passes a single `--reduced` file, which names one segment of a
+measurement; AuRE co-refines all of them. So the aure path runs
+`data-assembler ingest-workflow RESULTS_DIR` (`run_ingest_aure`), which reads
+`run_info.json` for the full segment list and writes one reflectivity record per
+segment — each carrying its own angle and place in the sequence — with the model
+record linked to every one of them. Unlike `aure`, this tool does report a
+manifest, so the outcome is read rather than synthesized.
+
 **Mantid-free local run.** Reduction needs Mantid; the other stages don't. Seed
 past reduction from an existing partial file and chain the rest in one shot:
 

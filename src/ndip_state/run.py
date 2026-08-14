@@ -35,6 +35,12 @@ The analyze stage has two backends, matching the two Galaxy analyzer tools:
 does not emit a result manifest, so it is driven by :func:`run_analyze_aure`
 rather than the generic project-out path.
 
+``--analyzer aure`` also changes how ingest runs. AuRE co-refines every segment
+of a measurement, and the generic ingest projection names only one of them, so
+the aure path goes through :func:`run_ingest_aure` — ``data-assembler
+ingest-workflow`` over the whole results directory, which assembles one record
+per segment.
+
 Runs on a single host where the tool binaries are on ``$PATH``; cross-container
 orchestration stays Galaxy's job.
 """
@@ -68,6 +74,12 @@ DEFAULT_TOOL_CMDS = {
 # The AuRE analyzer's default invocation. Unlike analyze-sample it takes
 # ``-c JOB -o RESULTS`` and emits no manifest, so run_analyze_aure drives it.
 DEFAULT_AURE_CMD = "aure analyze"
+
+# The ingest invocation for the AuRE backend. ``data-assembler ingest`` takes a
+# single ``--reduced`` file, which under AuRE assembles only the one segment that
+# seeded the run; ``ingest-workflow`` reads the whole results directory instead.
+# See run_ingest_aure.
+DEFAULT_AURE_INGEST_CMD = "data-assembler ingest-workflow"
 
 # The stages ``ndip-run all`` drives by default. Reduction is excluded: it needs
 # Mantid + an event file, and the local-first path skips it via
@@ -179,19 +191,88 @@ def run_analyze_aure(state_path, tool_cmd=DEFAULT_AURE_CMD, output_prefix=None):
     return exit_code
 
 
+def run_ingest_aure(state_path, tool_cmd=DEFAULT_AURE_INGEST_CMD, output_prefix=None):
+    """Drive ``data-assembler ingest-workflow`` for the ingest stage. Returns the exit code.
+
+    A REF_L measurement is several runs — the same state at a few angles, each
+    reduced to its own partial file — and AuRE co-refines them together. The
+    generic ingest projection passes ``--reduced`` once, naming only the segment
+    that seeded the state, so the assembled record covers a single angle and the
+    co-refinement model's datasets have nothing to bind to (the model parser
+    can't read probe Q out of AuRE's ``problem.json``, so auto-detection falls
+    back to dataset 1 no matter which segment was passed).
+
+    ``ingest-workflow`` pulls the AuRE results directory instead: ``run_info.json``
+    names every segment, so it writes one reflectivity record per segment sharing
+    a sample, links the model to all of them, and reports each dataset against
+    its own run. That is what the parquet has to carry for the segments to be
+    refit and co-refined from the record alone.
+
+    Unlike ``aure analyze`` this tool does report a manifest, so the outcome is
+    read rather than synthesized.
+    """
+    state = load_state(state_path)
+
+    # The results directory AuRE wrote, as recorded by run_analyze_aure. Fall
+    # back to the analyze projection so a state produced some other way (an
+    # externally-run fit, say) still resolves.
+    analysis = ((state.get("stages") or {}).get("analysis") or {})
+    results_dir = (analysis.get("artifacts") or {}).get("results_dir") or ""
+    if not results_dir:
+        try:
+            proj = project_out("analyze", state)
+        except ProjectionError as exc:
+            raise SystemExit("project-out failed for stage 'analyze': %s" % exc)
+        results_dir = proj[proj.index("--results-dir") + 1]
+    if not os.path.isdir(results_dir):
+        raise SystemExit(
+            "ingest (aure): no AuRE results directory to ingest: %s" % results_dir
+        )
+
+    # Reuse the ingest projection for the output directory so the two backends
+    # write to the same place.
+    try:
+        ingest_args = project_out("ingest", state)
+    except ProjectionError as exc:
+        raise SystemExit("project-out failed for stage 'ingest': %s" % exc)
+    out_dir = ingest_args[ingest_args.index("-o") + 1]
+
+    fd, result_out = tempfile.mkstemp(prefix="ndip_result_", suffix=".json")
+    os.close(fd)
+
+    cmd = shlex.split(tool_cmd) + [results_dir, "-o", out_dir, "--result-out", result_out]
+    sys.stderr.write("ndip-run ingest (aure): %s\n" % " ".join(shlex.quote(c) for c in cmd))
+    proc = subprocess.run(cmd)
+    exit_code = proc.returncode
+
+    manifest = _load_manifest(result_out, exit_code)
+    merge_in("ingest", state, manifest, exit_code, output_prefix=output_prefix)
+    save_state(state, state_path)
+
+    try:
+        os.unlink(result_out)
+    except OSError:
+        pass
+    return exit_code
+
+
 def run_chain(stages, state_path, tool_cmds=None, output_prefix=None, analyzer="simple"):
     """Run *stages* in order; stop at the first non-zero rc.
 
     Each stage uses its entry in *tool_cmds* (defaults to ``DEFAULT_TOOL_CMDS``),
-    except the analyze stage when *analyzer* is ``"aure"`` — then the AuRE
-    backend (:func:`run_analyze_aure`) runs instead. Returns the exit code of the
-    last stage attempted.
+    except when *analyzer* is ``"aure"``: the analyze stage then runs the AuRE
+    backend (:func:`run_analyze_aure`) and the ingest stage follows it through
+    :func:`run_ingest_aure`, which assembles every segment of the co-refinement
+    rather than the single one the generic projection names. Returns the exit
+    code of the last stage attempted.
     """
     tool_cmds = tool_cmds or DEFAULT_TOOL_CMDS
     rc = 0
     for st in stages:
         if st == "analyze" and analyzer == "aure":
             rc = run_analyze_aure(state_path, DEFAULT_AURE_CMD, output_prefix)
+        elif st == "ingest" and analyzer == "aure":
+            rc = run_ingest_aure(state_path, DEFAULT_AURE_INGEST_CMD, output_prefix)
         else:
             rc = run_stage(st, state_path, tool_cmds[st], output_prefix)
         if rc != 0:
@@ -245,7 +326,9 @@ def main(argv=None):
         choices=["simple", "aure"],
         default="simple",
         help="Analyze backend for the 'analyze' stage (and 'all'): 'simple' "
-             "(analyze-sample, default) or 'aure' (the agentic AuRE analyzer).",
+             "(analyze-sample, default) or 'aure' (the agentic AuRE analyzer). "
+             "Also selects the ingest path: 'aure' assembles the whole results "
+             "directory with 'data-assembler ingest-workflow'.",
     )
     parser.add_argument("--output-prefix", default=None, help="Operator output dir for path canonicalization.")
     parser.add_argument("--result-out", default=None, help="Where the tool writes its manifest (default: temp file).")
@@ -271,6 +354,11 @@ def main(argv=None):
     if args.stage == "analyze" and args.analyzer == "aure":
         tool_cmd = args.tool_cmd or DEFAULT_AURE_CMD
         rc = run_analyze_aure(args.state, tool_cmd, output_prefix)
+        sys.exit(rc)
+
+    if args.stage == "ingest" and args.analyzer == "aure":
+        tool_cmd = args.tool_cmd or DEFAULT_AURE_INGEST_CMD
+        rc = run_ingest_aure(args.state, tool_cmd, output_prefix)
         sys.exit(rc)
 
     tool_cmd = args.tool_cmd or DEFAULT_TOOL_CMDS[args.stage]

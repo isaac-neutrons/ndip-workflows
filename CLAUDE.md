@@ -80,6 +80,14 @@ into every generated tool XML so the foreign containers need only `python`.
   next to the data, run `aure analyze`, synthesize the manifest from
   `problem.json`. This ports the AuRE branch of `analyzer.xml`; run.py isn't in
   the shim, so no `build_tool_xmls.py` run is needed.
+  `--analyzer aure` **also swaps the ingest stage** (`run_ingest_aure`): the
+  generic ingest projection passes one `--reduced` file, but a REF_L measurement
+  is several partials at different angles that AuRE co-refines together, so it
+  runs `data-assembler ingest-workflow RESULTS_DIR` — one reflectivity record per
+  segment, model linked to all of them. That tool *does* report a manifest, so
+  unlike the analyze path nothing is synthesized. Adding a stage backend here is
+  a run.py change, not a projection one — keep it that way and the shim stays
+  untouched.
 - **`ndip-package`** (`src/ndip_state/package.py`, orchestration-only, not in the
   shim) reads a final state and gathers a git-storable **provenance package**
   (inputs/plan/model/results + reports + AI record + `MANIFEST.json` with

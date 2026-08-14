@@ -25,6 +25,7 @@ from ndip_state import run as run_mod
 from ndip_state.run import (
     CHAIN_STAGES,
     DEFAULT_AURE_CMD,
+    DEFAULT_AURE_INGEST_CMD,
     DEFAULT_TOOL_CMDS,
     run_analyze_aure,
     run_chain,
@@ -344,6 +345,27 @@ _AURE_NO_MODEL = '''
 '''
 
 
+# ingest-workflow takes the AuRE results directory positionally, and unlike
+# `aure` it does report a manifest.
+_AURE_INGEST = '''
+    import json, os, sys
+    a = sys.argv[1:]
+    assert a[0] == "ingest-workflow", a
+    run_dir = a[1]
+    # The whole results directory, not a single reduced segment.
+    assert os.path.isdir(run_dir), run_dir
+    assert "--reduced" not in a, a
+    out = a[a.index("-o") + 1]
+    res = a[a.index("--result-out") + 1]
+    with open(res, "w") as f:
+        json.dump({
+            "tool": "data-assembler", "schema": "ndip-tool-result/1", "status": "ok",
+            "artifacts": {"ingest_dir": out},
+            "info": {"num_reflectivity_records": 3},
+        }, f)
+'''
+
+
 def _planned_state(tmp_path):
     """A reduction-`ok` seed with a real job YAML and a writable output dir."""
     out = tmp_path / "out"
@@ -355,6 +377,58 @@ def _planned_state(tmp_path):
         "status": "pending", "params": {}, "artifacts": {"job_yaml": str(job)}, "info": {},
     }
     return s, out
+
+
+def _analyzed_state(tmp_path):
+    """A state past an AuRE analyze: a results dir with a model in it."""
+    s, out = _planned_state(tmp_path)
+    results = out / "226644" / "results"
+    results.mkdir(parents=True)
+    (results / "problem.json").write_text("{}")
+    s["stages"]["analysis"] = {
+        "status": "ok",
+        "params": {},
+        "artifacts": {
+            "problem_json": str(results / "problem.json"),
+            "results_dir": str(results),
+        },
+        "info": {},
+    }
+    return s, out, results
+
+
+def test_run_ingest_aure_assembles_the_whole_results_dir(tmp_path):
+    py = os.environ.get("PYTHON", "python3")
+    tool = _make_stub(tmp_path / "da.py", _AURE_INGEST)
+    s, out, _results = _analyzed_state(tmp_path)
+    state_path = str(tmp_path / "state.json")
+    save_state(s, state_path)
+
+    rc = run_mod.run_ingest_aure(
+        state_path, "%s %s ingest-workflow" % (py, tool), output_prefix=str(out)
+    )
+    assert rc == 0
+
+    with open(state_path) as f:
+        st = json.load(f)
+    assert st["stages"]["assembly"]["status"] == "ok"
+    # The manifest is read from the tool, not synthesized.
+    assert st["stages"]["assembly"]["info"]["num_reflectivity_records"] == 3
+    # ingest_dir is what the convert stage is projected from.
+    assert st["stages"]["assembly"]["artifacts"]["ingest_dir"].endswith("assembled")
+
+
+def test_run_ingest_aure_refuses_when_there_is_no_results_dir(tmp_path):
+    """Better to stop than to ingest nothing and record the assembly ok."""
+    py = os.environ.get("PYTHON", "python3")
+    tool = _make_stub(tmp_path / "da.py", _AURE_INGEST)
+    s, out = _planned_state(tmp_path)  # analyze never ran
+    state_path = str(tmp_path / "state.json")
+    save_state(s, state_path)
+
+    with pytest.raises(SystemExit) as exc:
+        run_mod.run_ingest_aure(state_path, "%s %s ingest-workflow" % (py, tool), str(out))
+    assert "no AuRE results directory" in str(exc.value)
 
 
 def test_run_analyze_aure_ok(tmp_path):
@@ -412,10 +486,17 @@ def test_main_analyze_aure_dispatches_to_aure_backend(tmp_path, monkeypatch):
     assert captured["tool_cmd"] == DEFAULT_AURE_CMD == "aure analyze"
 
 
-def test_main_all_analyzer_aure_uses_aure_for_analyze(tmp_path, monkeypatch):
+def test_main_all_analyzer_aure_uses_aure_for_analyze_and_ingest(tmp_path, monkeypatch):
+    """--analyzer aure swaps out two stages, not one.
+
+    Ingest has to follow the analyzer: AuRE co-refines every segment of the
+    measurement, and the generic ingest projection names only the one segment
+    that seeded the state.
+    """
     calls = []
     monkeypatch.setattr(run_mod, "run_stage", lambda stage, *a, **k: (calls.append(("stage", stage)) or 0))
     monkeypatch.setattr(run_mod, "run_analyze_aure", lambda *a, **k: (calls.append(("aure",)) or 0))
+    monkeypatch.setattr(run_mod, "run_ingest_aure", lambda *a, **k: (calls.append(("aure-ingest",)) or 0))
     s, _ = _planned_state(tmp_path)
     state_path = str(tmp_path / "state.json")
     save_state(s, state_path)
@@ -423,4 +504,40 @@ def test_main_all_analyzer_aure_uses_aure_for_analyze(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         run_mod.main(["all", "--state", state_path, "--analyzer", "aure"])
     assert exc.value.code == 0
-    assert calls == [("stage", "plan"), ("aure",), ("stage", "ingest"), ("stage", "convert")]
+    assert calls == [("stage", "plan"), ("aure",), ("aure-ingest",), ("stage", "convert")]
+
+
+def test_main_all_analyzer_simple_keeps_the_generic_ingest(tmp_path, monkeypatch):
+    """The default backend must be untouched by the aure ingest path."""
+    calls = []
+    monkeypatch.setattr(run_mod, "run_stage", lambda stage, *a, **k: (calls.append(("stage", stage)) or 0))
+    monkeypatch.setattr(
+        run_mod, "run_ingest_aure", lambda *a, **k: pytest.fail("run_ingest_aure called")
+    )
+    s, _ = _planned_state(tmp_path)
+    state_path = str(tmp_path / "state.json")
+    save_state(s, state_path)
+
+    with pytest.raises(SystemExit) as exc:
+        run_mod.main(["all", "--state", state_path])
+    assert exc.value.code == 0
+    assert calls == [("stage", s) for s in ("plan", "analyze", "ingest", "convert")]
+
+
+def test_main_ingest_aure_dispatches_to_the_workflow_ingest(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_ingest(state_path, tool_cmd=DEFAULT_AURE_INGEST_CMD, output_prefix=None):
+        captured["tool_cmd"] = tool_cmd
+        return 0
+
+    monkeypatch.setattr(run_mod, "run_ingest_aure", fake_ingest)
+    monkeypatch.setattr(run_mod, "run_stage", lambda *a, **k: pytest.fail("run_stage called"))
+    s, _ = _planned_state(tmp_path)
+    state_path = str(tmp_path / "state.json")
+    save_state(s, state_path)
+
+    with pytest.raises(SystemExit) as exc:
+        run_mod.main(["ingest", "--state", state_path, "--analyzer", "aure"])
+    assert exc.value.code == 0
+    assert captured["tool_cmd"] == DEFAULT_AURE_INGEST_CMD == "data-assembler ingest-workflow"
